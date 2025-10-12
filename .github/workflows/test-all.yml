@@ -88,7 +88,7 @@ jobs:
       - name: Run C tests
         working-directory: ./c
         run: |
-          TEST_CMD=$(grep -A1 '^\[test\]' test-config.toml | grep 'command' | cut -d'"' -f2)
+          TEST_CMD=$(grep -A2 '^\[test\]' test-config.toml | grep 'command' | cut -d'"' -f2)
           echo "Running: $TEST_CMD"
           eval $TEST_CMD
       
