@@ -5,7 +5,7 @@ High-level API for quick image display and MEOW format handling.
 Low-level primitives API for TUI framework integration.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 from typing import Optional, Tuple, Union
 from pathlib import Path
