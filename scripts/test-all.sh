@@ -50,6 +50,17 @@ parse_toml() {
     ' "$file"
 }
 
+# Install dependencies for Python implementation
+install_python_deps() {
+    log_info "  Installing Python dependencies..."
+    if uv sync --all-extras; then
+        log_success "  Dependencies installed"
+    else
+        log_error "  Failed to install dependencies"
+        return 1
+    fi
+}
+
 # Test a single language implementation
 test_implementation() {
     local lang_dir=$1
@@ -79,6 +90,13 @@ test_implementation() {
     # Change to working directory if specified
     if [ "$working_dir" != "." ]; then
         cd "$working_dir"
+    fi
+    
+    # Language-specific setup
+    if [ "$lang_name" == "python" ]; then
+        if ! install_python_deps; then
+            return 1
+        fi
     fi
     
     # Build step (if specified)
