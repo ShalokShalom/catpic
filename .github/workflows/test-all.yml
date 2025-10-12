@@ -33,6 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Debug - Show what was discovered
+        run: |
+          echo "Discovered implementations: ${{ needs.discover.outputs.implementations }}"
+          echo "Checking if 'python' is in the list..."
+      
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
@@ -41,25 +46,52 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       
+      - name: Debug - Show Python version
+        run: |
+          uv run python --version
+          uv --version
+      
       - name: Install dependencies
         working-directory: ./python
-        run: uv sync --all-extras
+        run: |
+          echo "Running uv sync..."
+          uv sync --all-extras
+          echo "Dependencies installed"
+      
+      - name: Debug - Show installed packages
+        working-directory: ./python
+        run: uv pip list
+      
+      - name: Debug - Show test-config.toml
+        working-directory: ./python
+        run: |
+          echo "=== test-config.toml contents ==="
+          cat test-config.toml
+          echo "=== End test-config.toml ==="
       
       - name: Run Python tests
         working-directory: ./python
         run: |
-          # Read test command from test-config.toml
-          TEST_CMD=$(grep -A1 '^\[test\]' test-config.toml | grep 'command' | cut -d'"' -f2)
+          echo "Extracting test command..."
+          TEST_CMD=$(grep -A2 '^\[test\]' test-config.toml | grep 'command' | cut -d'"' -f2)
+          echo "Test command: [$TEST_CMD]"
           echo "Running: $TEST_CMD"
-          uv run $TEST_CMD
+          eval $TEST_CMD || {
+            echo "Tests failed with exit code $?"
+            exit 1
+          }
       
       - name: Run Python compliance tests
         working-directory: ./python
         run: |
-          # Read compliance command from test-config.toml
-          COMPLIANCE_CMD=$(grep -A2 '^\[compliance\]' test-config.toml | grep 'command' | cut -d'"' -f2)
+          echo "Extracting compliance command..."
+          COMPLIANCE_CMD=$(grep -A3 '^\[compliance\]' test-config.toml | grep 'command' | cut -d'"' -f2)
+          echo "Compliance command: [$COMPLIANCE_CMD]"
           echo "Running: $COMPLIANCE_CMD"
-          uv run $COMPLIANCE_CMD
+          eval $COMPLIANCE_CMD || {
+            echo "Compliance tests failed with exit code $?"
+            exit 1
+          }
 
   # Test C implementation (template for when C is implemented)
   test-c:
@@ -88,7 +120,7 @@ jobs:
       - name: Run C tests
         working-directory: ./c
         run: |
-          TEST_CMD=$(grep -A2 '^\[test\]' test-config.toml | grep 'command' | cut -d'"' -f2)
+          TEST_CMD=$(grep -A1 '^\[test\]' test-config.toml | grep 'command' | cut -d'"' -f2)
           echo "Running: $TEST_CMD"
           eval $TEST_CMD
       
