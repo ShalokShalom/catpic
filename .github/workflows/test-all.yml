@@ -51,6 +51,12 @@ jobs:
           uv run python --version
           uv --version
       
+      # ADDED: Copy references before build/test
+      - name: Copy references to language directories
+        run: |
+          chmod +x scripts/copy_references.sh
+          ./scripts/copy_references.sh
+      
       - name: Install dependencies
         working-directory: ./python
         run: |
@@ -92,6 +98,22 @@ jobs:
             echo "Compliance tests failed with exit code $?"
             exit 1
           }
+      
+      # ADDED: Build package to verify packaging works
+      - name: Build Python package
+        working-directory: ./python
+        run: |
+          echo "Building package..."
+          uv build
+          echo "Package built successfully"
+      
+      # ADDED: Verify package contents
+      - name: Verify package contents
+        working-directory: ./python
+        run: |
+          echo "=== Checking package contents ==="
+          tar -tzf dist/catpic-0.5.2.tar.gz | grep -E '(README|IMPLEMENTATION|docs|spec)' || true
+          echo "=== Package check complete ==="
 
   # Test C implementation (template for when C is implemented)
   test-c:
@@ -106,6 +128,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
+      
+      # ADDED: Copy references for C implementation
+      - name: Copy references to language directories
+        run: |
+          chmod +x scripts/copy_references.sh
+          ./scripts/copy_references.sh
       
       - name: Run C build
         working-directory: ./c
@@ -138,6 +166,7 @@ jobs:
   # 4. Update working-directory to ./rust
   # 5. Install language-specific dependencies (e.g., Rust toolchain)
   # 6. Keep the same pattern of reading commands from test-config.toml
+  # 7. Add the "Copy README to language directories" step before build
   #
   # Example for Rust:
   #
@@ -150,6 +179,11 @@ jobs:
   #     
   #     - name: Install Rust
   #       uses: dtolnay/rust-toolchain@stable
+  #     
+  #     - name: Copy references to language directories
+  #       run: |
+  #         chmod +x scripts/copy_references.sh
+  #         ./scripts/copy_references.sh
   #     
   #     - name: Run Rust build
   #       working-directory: ./rust
@@ -192,6 +226,11 @@ jobs:
       #   run: |
       #     sudo apt-get update
       #     sudo apt-get install -y build-essential
+      
+      - name: Copy references to language directories
+        run: |
+          chmod +x scripts/copy_references.sh
+          ./scripts/copy_references.sh
       
       - name: Make test script executable
         run: chmod +x scripts/test-all.sh

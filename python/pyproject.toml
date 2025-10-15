@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "catpic"
-version = "0.5.1"
+version = "0.5.2"
 description = "Display images in terminals using Unicode mosaics and ANSI colors"
 readme = "README.md"
 license = {text = "MIT"}
@@ -57,6 +57,21 @@ Documentation = "https://github.com/friscorose/catpic/tree/main/docs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/catpic"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"IMPLEMENTATION.md" = "catpic/IMPLEMENTATION.md"
+"docs" = "catpic/docs"
+"spec" = "catpic/spec"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/IMPLEMENTATION.md",
+    "/README.md",
+    "/docs",
+    "/spec",
+]
 
 [tool.black]
 line-length = 88

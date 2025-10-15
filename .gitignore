@@ -75,3 +75,10 @@ examples/output/
 *.tmp
 *.temp
 .tmp/
+
+# Generated at build time by scripts/copy_readme.sh - don't track
+python/README.md
+c/README.md
+rust/README.md
+go/README.md
+
