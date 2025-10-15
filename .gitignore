@@ -71,14 +71,40 @@ uv.lock
 test_output/
 examples/output/
 
+# Generated at build time by scripts/copy_references.sh - don't track
+python/README.md
+python/docs/
+python/spec/
+c/README.md
+c/docs/
+c/spec/
+rust/README.md
+rust/docs/
+rust/spec/
+go/README.md
+go/docs/
+go/spec/
+
+# Prototypical/scratch files - keep locally but don't track
+*_prompt.md
+*_concepts.md
+commit_message_docs.md
+multilang_dependencies.md
+terminal_capability_ladder.md
+copy_readme_script.sh
+link_audit_script.sh
+local_ci_test.sh
+gitignore
+gitignore(*)
+python/*_run.py
+python/create_test_data.py
+python/test_diagnostics.py
+python/quick_test_runner.sh
+python/python_implementation_md.md
+python/root_readme_multilang.md
+python/future_multilang_docs.md
+
 # Temporary files
 *.tmp
 *.temp
 .tmp/
-
-# Generated at build time by scripts/copy_readme.sh - don't track
-python/README.md
-c/README.md
-rust/README.md
-go/README.md
-
