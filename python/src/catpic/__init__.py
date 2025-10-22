@@ -13,7 +13,7 @@ from PIL import Image
 
 # Import encoder and decoder classes
 from .encoder import CatpicEncoder
-from .decoder import CatpicDecoder
+from .decoder import load_meow, display_meow, show_info
 
 # Import core types for tests
 from .core import BASIS
@@ -72,22 +72,9 @@ def render_image_ansi(
 
 
 def load_meow(filepath: Union[str, Path]):
-    """
-    Load a MEOW format file.
-    
-    Args:
-        filepath: Path to .meow file
-    
-    Returns:
-        Tuple of (frames, metadata) where frames is list of ANSI strings
-        and metadata is dict with width, height, basis, etc.
-    
-    Example:
-        >>> frames, meta = load_meow('animation.meow')
-        >>> print(frames[0])  # Display first frame
-    """
-    decoder = CatpicDecoder()
-    return decoder.load(filepath)
+    """Load a MEOW format file."""
+    from .decoder import load_meow as _load_meow
+    return _load_meow(str(filepath))
 
 
 def save_meow(filepath: Union[str, Path], image: Union[str, Path, Image.Image],
@@ -144,12 +131,13 @@ __all__ = [
     "__version__",
     # High-level API
     "render_image_ansi",
+    "show_info",
     "load_meow",
     "save_meow",
+    "display_meow",
     # Core types
     "BASIS",
     "CatpicEncoder",
-    "CatpicDecoder",
     # Primitives - Core types
     "Cell",
     # Primitives - GLUTs

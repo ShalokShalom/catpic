@@ -1,264 +1,177 @@
-"""catpic decoding and display functionality."""
+"""
+MEOW v0.6 decoder - Display and manipulation
+"""
 
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Optional
+
+from .core import EXIT_ERROR_FILE_NOT_FOUND, DEFAULT_FRAME_DELAY
+from .meow_parser import MEOWParser, MEOWFile
 
 
-class CatpicDecoder:
-    """Decoder for displaying MEOW format images."""
+def load_meow(filepath: str) -> MEOWFile:
+    """
+    Load and parse a MEOW file
     
-    def __init__(self):
-        """Initialize decoder."""
-        pass
+    Args:
+        filepath: Path to .meow file
+        
+    Returns:
+        Parsed MEOWFile object
+        
+    Raises:
+        SystemExit: With code 5 if file not found
+    """
+    path = Path(filepath)
     
-    def parse_meow(self, content: str) -> Dict[str, Union[str, int, List[str]]]:
-        """Parse MEOW content and extract metadata and data."""
-        lines = content.strip().split('\n')
-        
-        if not lines or not lines[0].startswith(('MEOW/', 'MEOW-ANIM/')):
-            raise ValueError("Invalid MEOW format: missing header")
-        
-        format_type = lines[0]
-        metadata = {'format': format_type}
-        data_lines = []
-        in_data_section = False
-        current_frame_lines = []
-        frames = []
-        current_frame = None
-        
-        for line in lines[1:]:
-            if line == "DATA:":
-                in_data_section = True
-                continue
+    if not path.exists():
+        print(f"Error: File not found: {filepath}", file=sys.stderr)
+        sys.exit(EXIT_ERROR_FILE_NOT_FOUND)
+    
+    try:
+        data = path.read_bytes()
+    except Exception as e:
+        print(f"Error: Cannot read file {filepath}: {e}", file=sys.stderr)
+        sys.exit(EXIT_ERROR_FILE_NOT_FOUND)
+    
+    parser = MEOWParser()
+    return parser.parse(data)
+
+
+def display_meow(filepath: str, meld: bool = False):
+    """
+    Display a MEOW file to terminal
+    
+    Args:
+        filepath: Path to .meow file
+        meld: Force runtime melding (translucency recomputation)
+    """
+    meow = load_meow(filepath)
+    
+    # Check if animated
+    has_frames = any(layer.frame is not None for layer in meow.layers)
+    
+    if has_frames:
+        _display_animated(meow, meld)
+    else:
+        _display_static(meow, meld)
+
+
+def _display_static(meow: MEOWFile, meld: bool):
+    """Display static (non-animated) MEOW file"""
+    # For phase 1, just output visible content in stream order
+    # Melding is not implemented yet (phase 2 feature)
+    
+    for layer in meow.layers:
+        if layer.visible_output:
+            print(layer.visible_output, end='')
+    
+    # Ensure newline at end
+    print()
+
+
+def _display_animated(meow: MEOWFile, meld: bool):
+    """Display animated MEOW file"""
+    frames = meow.group_by_frame()
+    loop_count = meow.canvas.loop if meow.canvas else 1
+    is_infinite = meow.canvas.is_infinite_loop() if meow.canvas else False
+    
+    iteration = 0
+    while is_infinite or iteration < loop_count:
+        for frame_num in sorted(frames.keys()):
+            frame_layers = frames[frame_num]
             
-            if not in_data_section:
-                # Parse metadata
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    if key in ['WIDTH', 'HEIGHT', 'FRAMES', 'DELAY']:
-                        metadata[key.lower()] = int(value)
-                    else:
-                        metadata[key.lower()] = value
-            else:
-                # Handle frame data for animations
-                if line.startswith("FRAME:"):
-                    if current_frame is not None:
-                        frames.append({
-                            'frame': current_frame,
-                            'lines': current_frame_lines
-                        })
-                    current_frame = int(line.split(':', 1)[1])
-                    current_frame_lines = []
-                else:
-                    if format_type.startswith('MEOW-ANIM/'):
-                        current_frame_lines.append(line)
-                    else:
-                        data_lines.append(line)
+            # Clear screen and position cursor
+            print('\x1b[2J\x1b[H', end='')
+            
+            # Display all layers in this frame
+            for layer in frame_layers:
+                if layer.visible_output:
+                    print(layer.visible_output, end='')
+            
+            sys.stdout.flush()
+            
+            # Get delay from first animated layer in frame
+            delay_ms = DEFAULT_FRAME_DELAY
+            for layer in frame_layers:
+                if layer.frame is not None:
+                    delay_ms = layer.delay
+                    break
+            
+            # Sleep for frame delay
+            time.sleep(delay_ms / 1000.0)
         
-        # Handle last frame for animations
-        if current_frame is not None:
-            frames.append({
-                'frame': current_frame,
-                'lines': current_frame_lines
-            })
-        
-        if format_type.startswith('MEOW-ANIM/'):
-            metadata['frames'] = frames
-        else:
-            metadata['data_lines'] = data_lines
-        
-        return metadata
-    
-    def display(self, content: str, file=None) -> None:
-        """Display MEOW content to terminal."""
-        if file is None:
-            file = sys.stdout
-        
-        try:
-            parsed = self.parse_meow(content)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return
-        
-        if parsed['format'].startswith('MEOW-ANIM/'):
-            # Animation - display first frame only
-            if 'frames' in parsed and parsed['frames']:
-                for line in parsed['frames'][0]['lines']:
-                    print(line, file=file)
-            else:
-                print("Error: No frames found in animation", file=sys.stderr)
-        else:
-            # Static image
-            if 'data_lines' in parsed:
-                for line in parsed['data_lines']:
-                    print(line, file=file)
-            else:
-                print("Error: No image data found", file=sys.stderr)
-    
-    def display_file(self, meow_path: Union[str, Path], file=None) -> None:
-        """Display MEOW file contents."""
-        try:
-            with open(meow_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            self.display(content, file)
-        except FileNotFoundError:
-            print(f"Error: File '{meow_path}' not found", file=sys.stderr)
-        except UnicodeDecodeError:
-            print(f"Error: Cannot decode file '{meow_path}' as UTF-8", file=sys.stderr)
+        iteration += 1
 
 
-class CatpicPlayer:
-    """Player for MEOW animated images."""
+def show_info(filepath: str):
+    """
+    Display metadata information about a MEOW file
     
-    def __init__(self):
-        """Initialize player."""
-        self.decoder = CatpicDecoder()
+    Args:
+        filepath: Path to .meow file
+    """
+    meow = load_meow(filepath)
     
-    def play(
-        self, 
-        content: str, 
-        delay: Optional[int] = None,
-        loop: bool = True,
-        max_loops: Optional[int] = None,
-        force: bool = False
-    ) -> None:
-        """
-        Play MEOW animation content with reduced flicker.
+    # Canvas information
+    if meow.canvas:
+        print("Canvas:")
+        print(f"  Version: {meow.canvas.version}")
         
-        Animation plays at current cursor position instead of clearing screen.
-        Saves cursor position before starting, restores after.
+        if meow.canvas.size:
+            w, h = meow.canvas.size
+            print(f"  Size: {w}×{h}")
         
-        Auto-truncates animation height to fit terminal unless force=True.
+        if meow.canvas.basis != (2, 2):
+            bx, by = meow.canvas.basis
+            print(f"  Basis: {bx}×{by}")
         
-        Args:
-            content: MEOW-ANIM format string
-            delay: Override frame delay in milliseconds
-            loop: Loop animation indefinitely
-            max_loops: Maximum number of loops
-            force: If True, skip auto-truncation and play full size
+        if meow.canvas.loop == 0:
+            print("  Loop: infinite")
+        elif meow.canvas.loop != 1:
+            print(f"  Loop: {meow.canvas.loop}")
         
-        Flicker reduction techniques:
-        1. Save/restore cursor position
-        2. Hide cursor during playback
-        3. Use saved position (\x1b[u) to return to start of animation
-        4. Buffer entire frame before outputting
-        5. Single flush per frame
-        """
-        try:
-            parsed = self.decoder.parse_meow(content)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return
+        if meow.canvas.meta:
+            print("  Metadata:")
+            for key, value in meow.canvas.meta.items():
+                print(f"    {key}: {value}")
         
-        if not parsed['format'].startswith('MEOW-ANIM/'):
-            print("Error: Not an animation file", file=sys.stderr)
-            return
-        
-        if 'frames' not in parsed or not parsed['frames']:
-            print("Error: No frames found in animation", file=sys.stderr)
-            return
-        
-        # Get animation height
-        anim_height = parsed.get('height', 0)
-        
-        # Check terminal height and auto-truncate if needed
-        import os
-        import shutil
-        
-        terminal_size = shutil.get_terminal_size(fallback=(80, 24))
-        terminal_height = terminal_size.lines
-        
-        # Determine display height
-        if force or anim_height <= terminal_height:
-            # Use full height
-            display_height = anim_height
-            truncated = False
-        else:
-            # Auto-truncate to fit terminal
-            # Reserve 3 lines: current line, animation, and one for cursor after
-            display_height = max(1, terminal_height - 3)
-            truncated = True
-            print(f"Note: Animation truncated to {display_height} lines (terminal height: {terminal_height}). Use --force to disable.", file=sys.stderr)
-        
-        # Use provided delay or file delay or default
-        frame_delay = delay or parsed.get('delay', 100)
-        delay_seconds = frame_delay / 1000.0
-        
-        frames = parsed['frames']
-        loop_count = 0
-        
-        # Get expected line width from metadata
-        # Each character position has ANSI codes, so we can't use simple len()
-        # Instead, clear any partial lines by moving to column 0 and clearing to end
-        frame_width = parsed.get('width', 80)
-        
-        # Save cursor position and hide cursor
-        # \x1b[s = save cursor position
-        # \x1b[?25l = hide cursor
-        print('\x1b[s\x1b[?25l', end='', flush=True)
-        
-        try:
-            while True:
-                for frame_data in frames:
-                    # Build frame using cursor positioning, no newlines
-                    # \x1b[u = restore to saved position
-                    output_buffer = ['\x1b[u']
-                    
-                    for idx, line in enumerate(frame_data['lines']):
-                        if idx >= display_height:
-                            break
-                        
-                        # Output line content
-                        output_buffer.append(line)
-                        
-                        # Clear to end of line (removes artifacts)
-                        output_buffer.append('\x1b[K')
-                        
-                        # Move to next line (down 1, column 0) - but not after last line
-                        if idx < display_height - 1:
-                            output_buffer.append('\x1b[B\x1b[G')
-                    
-                    # Output entire frame at once
-                    print(''.join(output_buffer), end='', flush=True)
-                    
-                    # Wait for next frame
-                    time.sleep(delay_seconds)
-                
-                if not loop:
-                    break
-                
-                loop_count += 1
-                if max_loops is not None and loop_count >= max_loops:
-                    break
-                    
-        except KeyboardInterrupt:
-            pass
-        finally:
-            # Restore cursor position, show cursor
-            print('\x1b[u\x1b[?25h', end='', flush=True)
-            # Move cursor below animation
-            # Use exact positioning: down display_height lines, then one more for new prompt
-            if display_height > 0:
-                for _ in range(display_height):
-                    print('\x1b[B', end='')
-                print()  # Final newline for prompt
+        print()
     
-    def play_file(
-        self, 
-        meow_path: Union[str, Path],
-        delay: Optional[int] = None,
-        loop: bool = True,
-        max_loops: Optional[int] = None,
-        force: bool = False
-    ) -> None:
-        """Play MEOW animation file."""
-        try:
-            with open(meow_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            self.play(content, delay, loop, max_loops, force)
-        except FileNotFoundError:
-            print(f"Error: File '{meow_path}' not found", file=sys.stderr)
-        except UnicodeDecodeError:
-            print(f"Error: Cannot decode file '{meow_path}' as UTF-8", file=sys.stderr)
+    # Layer information
+    print(f"Layers: {len(meow.layers)}")
+    
+    for idx, layer in enumerate(meow.layers):
+        print(f"\nLayer {idx}:")
+        
+        if layer.id:
+            print(f"  ID: {layer.id}")
+        
+        if layer.box:
+            x = layer.box.get('x', 0)
+            y = layer.box.get('y', 0)
+            dx = layer.box.get('dx', 0)
+            dy = layer.box.get('dy', 0)
+            print(f"  Box: ({x}, {y}) {dx}×{dy}")
+        
+        if layer.alpha != 1.0:
+            print(f"  Alpha: {layer.alpha}")
+        
+        if layer.basis:
+            bx, by = layer.basis
+            print(f"  Basis: {bx}×{by}")
+        
+        if layer.ctype:
+            print(f"  Content Type: {layer.ctype}")
+        
+        if layer.cells:
+            print(f"  Cells: {len(layer.cells)} bytes")
+        
+        if layer.frame is not None:
+            print(f"  Frame: {layer.frame}")
+            print(f"  Delay: {layer.delay}ms")
+        
+        if layer.visible_output:
+            print(f"  Visible Output: {len(layer.visible_output)} bytes")
