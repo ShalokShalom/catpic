@@ -1,273 +1,207 @@
-"""catpic image encoding functionality."""
+"""
+MEOW v0.6 Encoder - Core functionality
 
+Phase 1: Essential single-layer encoding
+Phase 2 TODO: Multi-layer, animation, translucency, cells compression
+"""
+
+import json
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Union, Tuple
 
 from PIL import Image
 
-from .core import BASIS, CatpicCore, get_default_basis
+from .core import BASIS, CatpicCore, MEOW_VERSION, MEOW_OSC_NUMBER, DEFAULT_BASIS
+from .primitives import image_to_cells, cells_to_ansi_lines
 
 
 class CatpicEncoder:
-    """Encoder for converting images to MEOW format (Mosaic Encoding Over Wire)."""
+    """
+    Encode images to MEOW v0.6 format.
     
-    def __init__(self, basis: Optional[Union[BASIS, Tuple[int, int]]] = None):
-        """Initialize encoder with specified BASIS level.
+    Phase 1: Single-layer static images with v0.6 metadata
+    """
+    
+    def __init__(self, basis: Optional[BASIS] = None):
+        """
+        Initialize encoder.
         
         Args:
-            basis: Either a BASIS enum, tuple (2, 2), or None.
-                   If None, uses CATPIC_BASIS environment variable or defaults to BASIS_2_2.
-        
-        Environment:
-            CATPIC_BASIS: Set default BASIS (e.g., "2,4" or "2x4" or "2_4")
+            basis: BASIS level for encoding (default: BASIS_2_2)
         """
-        # If no basis provided, check environment variable
         if basis is None:
-            self.basis = get_default_basis()
-        # Handle both BASIS enum and tuple formats
-        elif isinstance(basis, tuple):
-            # Convert tuple to BASIS enum
-            basis_map = {
-                (1, 2): BASIS.BASIS_1_2,
-                (2, 2): BASIS.BASIS_2_2,
-                (2, 3): BASIS.BASIS_2_3,
-                (2, 4): BASIS.BASIS_2_4,
-            }
-            if basis not in basis_map:
-                raise ValueError(f"Invalid BASIS tuple: {basis}. Must be one of {list(basis_map.keys())}")
-            self.basis = basis_map[basis]
-        else:
-            self.basis = basis
+            from .core import get_default_basis
+            basis = get_default_basis()
         
-        self.core = CatpicCore()
-        
+        self.basis = basis
+        self.basis_tuple = basis.value  # (x, y) tuple
+    
     def encode_image(
-        self, 
-        image_path: Union[str, Path], 
+        self,
+        image_path: Union[str, Path],
         width: Optional[int] = None,
-        height: Optional[int] = None
+        height: Optional[int] = None,
     ) -> str:
         """
-        Encode a single image to MEOW format using EnGlyph algorithm.
+        Encode a static image to MEOW v0.6 format.
         
-        Algorithm:
-        1. Resize image to WIDTH×BASIS_X by HEIGHT×BASIS_Y pixels
-        2. For each cell: Extract BASIS_X×BASIS_Y pixel block  
-        3. Quantize to 2 colors using PIL.quantize(colors=2)
-        4. Generate bit pattern: pattern += 2**i for each lit pixel
-        5. Select Unicode character: blocks[pattern]
-        6. Compute RGB centroids for foreground/background
-        7. Output ANSI color sequence
+        Args:
+            image_path: Path to image file
+            width: Output width in characters (default: 80)
+            height: Output height in characters (default: auto from aspect ratio)
+        
+        Returns:
+            MEOW v0.6 formatted string with OSC 9876 metadata
+        
+        Phase 1: Single layer, no cells field, pre-rendered visible output
         """
+        # Load image
         with Image.open(image_path) as img:
-            # Convert to RGB if necessary
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
+            img = img.convert("RGB")
             
             # Calculate dimensions
             if width is None:
-                width = 80  # Default terminal width
+                width = 80
+            
             if height is None:
-                # Maintain aspect ratio with terminal character aspect correction
-                aspect_ratio = img.height / img.width
-                height = int(width * aspect_ratio * 0.5)
+                # Maintain aspect ratio
+                aspect = img.height / img.width
+                basis_x, basis_y = self.basis_tuple
+                cell_aspect = basis_y / basis_x
+                height = int(width * aspect / cell_aspect)
             
-            # Get BASIS dimensions
-            basis_x, basis_y = self.core.get_basis_dimensions(self.basis)
-            pixel_width = width * basis_x
-            pixel_height = height * basis_y
+            # Convert to cells (primitives handles resizing internally)
+            cells = image_to_cells(img, width, height, basis=self.basis)
             
-            # Resize image to exact pixel dimensions needed
-            img_resized = img.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
-            
-            # Generate MEOW header
-            lines = [
-                "MEOW/1.0",
-                f"WIDTH:{width}",
-                f"HEIGHT:{height}",
-                f"BASIS:{basis_x},{basis_y}",
-                "DATA:",
-            ]
-            
-            # Get character lookup table for this BASIS level
-            blocks = self.core.BLOCKS[self.basis]
-            
-            # Process each cell using EnGlyph algorithm
-            for y in range(height):
-                line_chars = []
-                for x in range(width):
-                    # Extract pixel block for this cell
-                    block_x = x * basis_x
-                    block_y = y * basis_y
-                    cell_img = img_resized.crop((
-                        block_x, 
-                        block_y, 
-                        block_x + basis_x, 
-                        block_y + basis_y
-                    ))
-                    
-                    # Apply EnGlyph algorithm to this cell
-                    glut_idx, fg_color, bg_color = self._cell_to_glyph(cell_img)
-                    char = blocks[glut_idx]
-                    
-                    # Format with ANSI colors
-                    cell = self.core.format_cell(char, fg_color, bg_color)
-                    line_chars.append(cell)
-                
-                lines.append("".join(line_chars))
-            
-            return "\n".join(lines)
-    
-    def _cell_to_glyph(self, cell_img: Image.Image) -> Tuple[int, Tuple[int, int, int], Tuple[int, int, int]]:
-        """
-        Convert a pixel block to glyph index and colors using EnGlyph algorithm.
+            # Generate ANSI output
+            ansi_lines = cells_to_ansi_lines(cells)
+            ansi_output = '\n'.join(ansi_lines)
         
-        This is the core algorithm from toglyxels.py:_img4cell2vals4seg()
+        # Build MEOW v0.6 file
+        parts = []
         
-        Algorithm steps:
-        1. Quantize block to 2 colors using PIL median cut
-        2. Classify each pixel as foreground (1) or background (0)
-        3. Generate bit pattern: sum of 2^i for each foreground pixel (row-major order)
-        4. Separate original pixels into fg/bg sets based on classification
-        5. Compute RGB centroids (averages) for each set
+        # Canvas block (optional but recommended)
+        canvas_metadata = {
+            "meow": MEOW_VERSION,
+            "size": [width, height],
+            "basis": list(self.basis_tuple),
+        }
+        canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
+        parts.append(f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07')
         
-        Example (BASIS 2,2):
-            Pixels:     Quantized:    Bit Pattern:
-            [R][B]      [1][0]        pattern = 2^0 = 1
-            [B][R]  ->  [0][1]    ->  pattern += 2^3 = 9
-            
-            Result: blocks[9] = "▚" with red fg, blue bg
+        # Layer block with visible output
+        # Phase 1: No layer metadata, just pure ANSI output
+        # (Valid per spec: "Minimal Valid File" section)
+        parts.append(ansi_output)
         
-        Returns:
-            (glut_index, fg_rgb, bg_rgb)
-        """
-        fg_pixels = []
-        bg_pixels = []
-        glut_idx = 0
-        
-        # Step 1: Quantize to 2 colors using median cut algorithm
-        # PIL's quantize(colors=2) uses median cut to find two representative
-        # colors that best represent the block's color distribution
-        duotone = cell_img.quantize(colors=2)
-        
-        # Step 2 & 3: Build bit pattern and separate fg/bg pixels
-        # Pixel at index i contributes 2^i to pattern if classified as foreground
-        for idx, pixel_class in enumerate(list(duotone.getdata())):
-            if pixel_class:  # Foreground pixel
-                fg_pixels.append(cell_img.getdata()[idx])
-                glut_idx += 2**idx  # Bit pattern generation
-            else:  # Background pixel
-                bg_pixels.append(cell_img.getdata()[idx])
-        
-        # Step 4: Compute color centroids (arithmetic mean of RGB values)
-        fg_color = self._compute_centroid(fg_pixels)
-        bg_color = self._compute_centroid(bg_pixels)
-        
-        return (glut_idx, fg_color, bg_color)
-    
-    def _compute_centroid(self, rgb_list) -> Tuple[int, int, int]:
-        """
-        Compute RGB centroid (average) from list of RGB tuples.
-        
-        Centroid = arithmetic mean of all pixel values in the set.
-        This provides the representative color for either foreground
-        or background pixels in a block.
-        
-        From toglyxels.py:_colors2rgb4sty()
-        
-        Args:
-            rgb_list: List of (r, g, b) tuples
-        
-        Returns:
-            (r, g, b) tuple with averaged values
-        
-        Example:
-            [(255, 0, 0), (200, 50, 0)] -> (227, 25, 0)
-        """
-        n = len(rgb_list)
-        if n == 0:
-            return (0, 0, 0)
-        
-        r_sum = g_sum = b_sum = 0
-        for r, g, b in rgb_list:
-            r_sum += r
-            g_sum += g
-            b_sum += b
-        
-        return (r_sum // n, g_sum // n, b_sum // n)
+        return ''.join(parts)
     
     def encode_animation(
-        self, 
-        gif_path: Union[str, Path],
+        self,
+        image_path: Union[str, Path],
         width: Optional[int] = None,
         height: Optional[int] = None,
-        delay: Optional[int] = None
+        delay: Optional[int] = None,
     ) -> str:
         """
-        Encode animated GIF to MEOW animation format.
+        Encode animated GIF to MEOW v0.6 format.
         
-        Uses the same EnGlyph algorithm per frame.
+        Phase 1: Basic implementation - encodes first frame only
+        Phase 2 TODO: Multi-frame with proper frame metadata
+        
+        Args:
+            image_path: Path to animated GIF
+            width: Output width in characters
+            height: Output height in characters
+            delay: Frame delay in milliseconds (default: from GIF)
+        
+        Returns:
+            MEOW v0.6 formatted string
         """
-        with Image.open(gif_path) as img:
-            if not getattr(img, 'is_animated', False):
-                raise ValueError("Input file is not an animated image")
+        with Image.open(image_path) as img:
+            if not getattr(img, "is_animated", False):
+                # Not animated, encode as static
+                return self.encode_image(image_path, width, height)
             
-            # Get animation properties
-            frame_count = getattr(img, 'n_frames', 1)
+            # Phase 1: Just encode first frame
+            # TODO Phase 2: Implement full animation with frame metadata
+            img.seek(0)
+            
+            # Get delay from GIF if not specified
             if delay is None:
                 delay = img.info.get('duration', 100)
             
-            # Calculate dimensions
-            if width is None:
-                width = 60  # Smaller default for animations
-            if height is None:
-                aspect_ratio = img.height / img.width
-                height = int(width * aspect_ratio * 0.5)
+            # Save first frame to temp and encode
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                img.convert('RGB').save(tmp.name)
+                result = self.encode_image(tmp.name, width, height)
             
-            # Generate MEOW animation header
-            basis_x, basis_y = self.core.get_basis_dimensions(self.basis)
-            lines = [
-                "MEOW-ANIM/1.0",
-                f"WIDTH:{width}",
-                f"HEIGHT:{height}",
-                f"BASIS:{basis_x},{basis_y}",
-                f"FRAMES:{frame_count}",
-                f"DELAY:{delay}",
-                "DATA:",
-            ]
+            Path(tmp.name).unlink()
             
-            # Get character lookup table
-            blocks = self.core.BLOCKS[self.basis]
-            pixel_width = width * basis_x
-            pixel_height = height * basis_y
+            # Add animation hint in canvas metadata
+            # Phase 1: Just add loop field
+            # TODO Phase 2: Add proper frame layers
+            result = result.replace(
+                '"basis"',
+                f'"loop":0,"basis"',  # loop=0 means infinite
+                1  # Replace only first occurrence
+            )
             
-            # Encode each frame
-            for frame_idx in range(frame_count):
-                img.seek(frame_idx)
-                frame = img.copy().convert('RGB')
-                frame_resized = frame.resize((pixel_width, pixel_height), Image.Resampling.LANCZOS)
-                
-                lines.append(f"FRAME:{frame_idx}")
-                
-                # Process frame using same cell encoding
-                for y in range(height):
-                    line_chars = []
-                    for x in range(width):
-                        block_x = x * basis_x
-                        block_y = y * basis_y
-                        cell_img = frame_resized.crop((
-                            block_x,
-                            block_y,
-                            block_x + basis_x,
-                            block_y + basis_y
-                        ))
-                        
-                        # Apply EnGlyph algorithm
-                        glut_idx, fg_color, bg_color = self._cell_to_glyph(cell_img)
-                        char = blocks[glut_idx]
-                        cell = self.core.format_cell(char, fg_color, bg_color)
-                        line_chars.append(cell)
-                    
-                    lines.append("".join(line_chars))
-            
-            return "\n".join(lines)
+            return result
+
+
+# Phase 2 TODO: Advanced encoder features
+"""
+## Phase 2 Encoder Features (Deferred)
+
+### Multi-Layer Encoding
+- Layer detection from transparent PNGs
+- Separate foreground/background layers
+- Layer bounding boxes
+- Layer IDs
+
+### Animation Encoding
+- Proper frame-based layer blocks
+- Frame metadata with 'f' field
+- Per-frame delay timing
+- Static + animated layer composition
+- Frame optimization (only changed regions)
+
+### Translucency Support
+- Alpha channel encoding
+- Pre-melding for cat compatibility
+- Alpha coefficient in layer metadata
+- Visual centroid computation
+
+### Cells Field Generation
+- Dense ANSI string format
+- Skip cell encoding (\\x1b[0m )
+- Row-major cell order
+- Conditional compression (gzip+base64)
+- ctype field validation
+
+### Metadata Compression
+- Detect cells presence
+- Automatic gzip compression
+- Base64 encoding
+- Size threshold logic
+
+### Advanced Features
+- Sparse visible output optimization
+- Cursor positioning for efficiency
+- Multiple canvas concatenation
+- Layer reordering support
+
+### Implementation Files Needed
+- src/catpic/encoder_layers.py - Multi-layer logic
+- src/catpic/encoder_animation.py - Frame handling
+- src/catpic/encoder_cells.py - Cells field generation
+- src/catpic/encoder_compression.py - Metadata compression
+
+### Tests Needed
+- tests/test_encoder_v06_layers.py
+- tests/test_encoder_v06_animation.py
+- tests/test_encoder_v06_cells.py
+- tests/test_encoder_v06_compression.py
+"""
