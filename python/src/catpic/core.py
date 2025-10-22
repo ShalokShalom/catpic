@@ -4,6 +4,33 @@ import os
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
+"""Core catpic functionality and constants."""
+
+import os
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
+# ============= ADD THESE MEOW v0.6 CONSTANTS =============
+# MEOW format constants
+MEOW_VERSION = "0.6"
+MEOW_OSC_NUMBER = 9876
+MEOW_OSC_PREFIX = f"\x1b]{MEOW_OSC_NUMBER};"
+MEOW_OSC_SUFFIX = "\x07"
+
+# Default values for MEOW format
+DEFAULT_BASIS = (2, 2)
+DEFAULT_CANVAS_SIZE = (80, 24)
+DEFAULT_ALPHA = 1.0
+DEFAULT_FRAME_DELAY = 100  # milliseconds
+
+# Exit codes (MEOW v0.6 spec)
+EXIT_SUCCESS = 0
+EXIT_ERROR_GENERAL = 1
+EXIT_ERROR_PARSE = 2
+EXIT_ERROR_NO_CANVAS_SIZE = 3
+EXIT_ERROR_INVALID_METADATA = 4
+EXIT_ERROR_FILE_NOT_FOUND = 5
+EXIT_ERROR_WRITE_ERROR = 6
 
 class BASIS(Enum):
     """BASIS system for catpic quality levels."""
