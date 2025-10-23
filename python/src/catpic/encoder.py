@@ -2,12 +2,12 @@
 MEOW v0.6 Encoder - Core functionality
 
 Phase 1: Essential single-layer encoding
-Phase 2 TODO: Multi-layer, animation, translucency, cells compression
+Phase 2: Full animation support with frame metadata
 """
 
 import json
 from pathlib import Path
-from typing import Optional, Union, Tuple
+from typing import Optional, Union
 
 from PIL import Image
 
@@ -20,6 +20,7 @@ class CatpicEncoder:
     Encode images to MEOW v0.6 format.
     
     Phase 1: Single-layer static images with v0.6 metadata
+    Phase 2: Full animation support
     """
     
     def __init__(self, basis: Optional[BASIS] = None):
@@ -47,13 +48,11 @@ class CatpicEncoder:
         
         Args:
             image_path: Path to image file
-            width: Output width in characters (default: 80)
+            width: Output width in characters (default: terminal width or 80)
             height: Output height in characters (default: auto from aspect ratio)
         
         Returns:
             MEOW v0.6 formatted string with OSC 9876 metadata
-        
-        Phase 1: Single layer, no cells field, pre-rendered visible output
         """
         # Load image
         with Image.open(image_path) as img:
@@ -61,7 +60,17 @@ class CatpicEncoder:
             
             # Calculate dimensions
             if width is None:
-                width = 80
+                width = 80  # Default to 80 columns
+            
+            # Cap width to terminal size to prevent wrapping corruption
+            term_width, _ = get_terminal_size()
+            if width > term_width:
+                width = term_width
+            
+            # Cap width to terminal size to prevent wrapping corruption
+            term_width, _ = get_terminal_size()
+            if width > term_width:
+                width = term_width
             
             if height is None:
                 # Maintain aspect ratio
@@ -90,8 +99,6 @@ class CatpicEncoder:
         parts.append(f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07')
         
         # Layer block with visible output
-        # Phase 1: No layer metadata, just pure ANSI output
-        # (Valid per spec: "Minimal Valid File" section)
         parts.append(ansi_output)
         
         return ''.join(parts)
@@ -106,67 +113,88 @@ class CatpicEncoder:
         """
         Encode animated GIF to MEOW v0.6 format.
         
-        Phase 1: Basic implementation - encodes first frame only
-        Phase 2 TODO: Multi-frame with proper frame metadata
-        
         Args:
             image_path: Path to animated GIF
-            width: Output width in characters
-            height: Output height in characters
-            delay: Frame delay in milliseconds (default: from GIF)
+            width: Output width in characters (default: terminal width)
+            height: Output height in characters (default: auto from aspect)
+            delay: Override frame delay in milliseconds (default: from GIF)
         
         Returns:
-            MEOW v0.6 formatted string
+            MEOW v0.6 formatted string with frame metadata
         """
         with Image.open(image_path) as img:
             if not getattr(img, "is_animated", False):
                 # Not animated, encode as static
                 return self.encode_image(image_path, width, height)
             
-            # Phase 1: Just encode first frame
-            # TODO Phase 2: Implement full animation with frame metadata
+            # Get animation info
+            frame_count = getattr(img, 'n_frames', 1)
+            default_delay = img.info.get('duration', 100)
+            if delay is not None:
+                default_delay = delay
+            
+            # Calculate dimensions from first frame
             img.seek(0)
+            img_rgb = img.convert("RGB")
             
-            # Get delay from GIF if not specified
-            if delay is None:
-                delay = img.info.get('duration', 100)
+            if width is None:
+                width = 80  # Default to 80 columns
             
-            # Save first frame to temp and encode
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                img.convert('RGB').save(tmp.name)
-                result = self.encode_image(tmp.name, width, height)
+            if height is None:
+                aspect = img_rgb.height / img_rgb.width
+                basis_x, basis_y = self.basis_tuple
+                cell_aspect = basis_y / basis_x
+                height = int(width * aspect / cell_aspect)
             
-            Path(tmp.name).unlink()
+            # Build MEOW v0.6 file
+            parts = []
             
-            # Add animation hint in canvas metadata
-            # Phase 1: Just add loop field
-            # TODO Phase 2: Add proper frame layers
-            result = result.replace(
-                '"basis"',
-                f'"loop":0,"basis"',  # loop=0 means infinite
-                1  # Replace only first occurrence
-            )
+            # Canvas block with loop and size
+            canvas_metadata = {
+                "meow": MEOW_VERSION,
+                "size": [width, height],
+                "basis": list(self.basis_tuple),
+                "loop": 0,  # Infinite loop
+            }
+            canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
+            parts.append(f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07')
             
-            return result
+            # Encode each frame as a layer with frame number
+            for frame_idx in range(frame_count):
+                img.seek(frame_idx)
+                frame_rgb = img.convert("RGB")
+                
+                # Convert to cells
+                cells = image_to_cells(frame_rgb, width, height, basis=self.basis)
+                
+                # Generate ANSI output
+                ansi_lines = cells_to_ansi_lines(cells)
+                ansi_output = '\n'.join(ansi_lines)
+                
+                # Layer block with frame metadata
+                layer_metadata = {
+                    "f": frame_idx,
+                    "delay": default_delay,
+                }
+                layer_json = json.dumps(layer_metadata, separators=(',', ':'))
+                parts.append(f'\x1b]{MEOW_OSC_NUMBER};{layer_json}\x07')
+                parts.append(ansi_output)
+                
+                # Frame separator for cat viewing (visual divider)
+                parts.append(f'\n\x1b[2m--- Frame {frame_idx + 1}/{frame_count} ---\x1b[0m\n')
+            
+            return ''.join(parts)
 
 
 # Phase 2 TODO: Advanced encoder features
 """
-## Phase 2 Encoder Features (Deferred)
+## Phase 2+ Encoder Features (Deferred)
 
 ### Multi-Layer Encoding
 - Layer detection from transparent PNGs
 - Separate foreground/background layers
 - Layer bounding boxes
 - Layer IDs
-
-### Animation Encoding
-- Proper frame-based layer blocks
-- Frame metadata with 'f' field
-- Per-frame delay timing
-- Static + animated layer composition
-- Frame optimization (only changed regions)
 
 ### Translucency Support
 - Alpha channel encoding
@@ -192,16 +220,4 @@ class CatpicEncoder:
 - Cursor positioning for efficiency
 - Multiple canvas concatenation
 - Layer reordering support
-
-### Implementation Files Needed
-- src/catpic/encoder_layers.py - Multi-layer logic
-- src/catpic/encoder_animation.py - Frame handling
-- src/catpic/encoder_cells.py - Cells field generation
-- src/catpic/encoder_compression.py - Metadata compression
-
-### Tests Needed
-- tests/test_encoder_v06_layers.py
-- tests/test_encoder_v06_animation.py
-- tests/test_encoder_v06_cells.py
-- tests/test_encoder_v06_compression.py
 """

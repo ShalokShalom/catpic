@@ -21,6 +21,13 @@ from .core import (
 )
 
 
+def strip_frame_markers(text: str) -> str:
+    """Remove frame marker lines for clean playback."""
+    # Pattern matches: \x1b[2m--- Frame N/Total ---\x1b[0m
+    pattern = r'\x1b\[2m--- Frame \d+/\d+ ---\x1b\[0m\n?'
+    return re.sub(pattern, '', text)
+
+
 @dataclass
 class CanvasBlock:
     """MEOW v0.6 Canvas metadata block"""
@@ -245,7 +252,7 @@ class MEOWParser:
             # Get visible output before this OSC
             if current_layer is not None:
                 visible = text[last_pos:match.start()]
-                current_layer.visible_output = visible
+                current_layer.visible_output = strip_frame_markers(visible)
                 self.layers.append(current_layer)
                 current_layer = None
             
@@ -276,18 +283,18 @@ class MEOWParser:
         # Handle remaining visible output
         if current_layer is not None:
             visible = text[last_pos:]
-            current_layer.visible_output = visible
+            current_layer.visible_output = strip_frame_markers(visible)
             self.layers.append(current_layer)
         elif last_pos == 0:
             # No OSC blocks found - pure ANSI file
-            layer = LayerBlock(visible_output=text)
+            layer = LayerBlock(visible_output=strip_frame_markers(text))
             self.layers.append(layer)
         else:
             # Trailing content after last OSC
             if last_pos < len(text):
                 trailing = text[last_pos:]
                 if trailing.strip():
-                    layer = LayerBlock(visible_output=trailing)
+                    layer = LayerBlock(visible_output=strip_frame_markers(trailing))
                     self.layers.append(layer)
         
         # Use last canvas block (concatenation semantics)
