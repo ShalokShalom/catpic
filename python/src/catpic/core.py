@@ -4,14 +4,7 @@ import os
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
-"""Core catpic functionality and constants."""
-
-import os
-from enum import Enum
-from typing import Dict, List, Optional, Tuple
-
-# ============= ADD THESE MEOW v0.6 CONSTANTS =============
-# MEOW format constants
+# MEOW v0.6 format constants
 MEOW_VERSION = "0.6"
 MEOW_OSC_NUMBER = 9876
 MEOW_OSC_PREFIX = f"\x1b]{MEOW_OSC_NUMBER};"
@@ -22,6 +15,7 @@ DEFAULT_BASIS = (2, 2)
 DEFAULT_CANVAS_SIZE = (80, 24)
 DEFAULT_ALPHA = 1.0
 DEFAULT_FRAME_DELAY = 100  # milliseconds
+DEFAULT_CHAR_ASPECT = 2.0  # Terminal characters are roughly 2:1 (height:width)
 
 # Exit codes (MEOW v0.6 spec)
 EXIT_SUCCESS = 0
@@ -31,6 +25,7 @@ EXIT_ERROR_NO_CANVAS_SIZE = 3
 EXIT_ERROR_INVALID_METADATA = 4
 EXIT_ERROR_FILE_NOT_FOUND = 5
 EXIT_ERROR_WRITE_ERROR = 6
+
 
 class BASIS(Enum):
     """BASIS system for catpic quality levels."""
@@ -80,6 +75,36 @@ def get_default_basis() -> BASIS:
     return BASIS.BASIS_2_2
 
 
+def get_char_aspect() -> float:
+    """
+    Get terminal character aspect ratio from environment or default.
+    
+    Terminal characters are typically taller than wide. Common values:
+    - 2.0: Most terminals (default)
+    - 1.8: Some wider fonts
+    - 2.2: Some narrower fonts
+    
+    Environment:
+        CATPIC_CHAR_ASPECT: Float value (e.g., "2.0", "1.8")
+    
+    Returns:
+        Character aspect ratio (height / width)
+    """
+    aspect_env = os.getenv('CATPIC_CHAR_ASPECT')
+    if not aspect_env:
+        return DEFAULT_CHAR_ASPECT
+    
+    try:
+        aspect = float(aspect_env)
+        # Sanity check: reasonable range
+        if 1.0 <= aspect <= 3.0:
+            return aspect
+    except (ValueError, TypeError):
+        pass
+    
+    return DEFAULT_CHAR_ASPECT
+
+
 class CatpicCore:
     """Core catpic constants and Unicode character sets for mosaic encoding."""
     
@@ -119,7 +144,7 @@ class CatpicCore:
         BASIS.BASIS_2_4: list(
             " 𜺨𜺫🮂𜴀▘𜴁𜴂𜴃𜴄▝𜴅𜴆𜴇𜴈▀𜴉𜴊𜴋𜴌🯦𜴍𜴎𜴏𜴐𜴑𜴒𜴓𜴔𜴕𜴖𜴗𜴘𜴙𜴚𜴛𜴜𜴝𜴞𜴟🯧𜴠𜴡𜴢𜴣𜴤𜴥𜴦𜴧𜴨𜴩𜴪𜴫𜴬𜴭𜴮𜴯𜴰𜴱𜴲𜴳𜴴𜴵🮅"
             "𜺣𜴶𜴷𜴸𜴹𜴺𜴻𜴼𜴽𜴾𜴿𜵀𜵁𜵂𜵃𜵄▖𜵅𜵆𜵇𜵈▌𜵉𜵊𜵋𜵌▞𜵍𜵎𜵏𜵐▛𜵑𜵒𜵓𜵔𜵕𜵖𜵗𜵘𜵙𜵚𜵛𜵜𜵝𜵞𜵟𜵠𜵡𜵢𜵣𜵤𜵥𜵦𜵧𜵨𜵩𜵪𜵫𜵬𜵭𜵮𜵯𜵰"
-            "𜺠𜵱𜵲𜵳𜵴𜵵𜵶𜵷𜵸𜵹𜵺𜵻𜵼𜵽𜵾𜵿𜶀𜶁𜶂𜶃𜶄𜶅𜶆𜶇𜶈𜶉𜶊𜶋𜶌𜶍𜶎𜶏▗𜶐𜶑𜶒𜶓▚𜶔𜶕𜶖𜶗▐𜶘𜶙𜶚𜶛▜𜶜𜶝𜶞𜶟𜶠𜶡𜶢𜶣𜶤𜶥𜶦𜶧𜶨𜶩𜶪𜶫"
+            "𜺠𜵱𜵲𜵳𜵴𜵵𜵶𜵷𜵸𜵹𜵺𜵻𜵼𜵽𜵾𜵿𜶀𜶁𜶂𜶃𜶄𜶅𜶆𜶇𜶈𜶉𜶊𜶋𜶌𜶍𜶎▗𜶏𜶐𜶑𜶒▚𜶓𜶔𜶕𜶖▐𜶗𜶘𜶙𜶚▜𜶛𜶜𜶝𜶞𜶟𜶠𜶡𜶢𜶣𜶤𜶥𜶦𜶧𜶨𜶩𜶪𜶫"
             "▂𜶬𜶭𜶮𜶯𜶰𜶱𜶲𜶳𜶴𜶵𜶶𜶷𜶸𜶹𜶺𜶻𜶼𜶽𜶾𜶿𜷀𜷁𜷂𜷃𜷄𜷅𜷆𜷇𜷈𜷉𜷊𜷋𜷌𜷍𜷎𜷏𜷐𜷑𜷒𜷓𜷔𜷕𜷖𜷗𜷘𜷙𜷚▄𜷛𜷜𜷝𜷞▙𜷟𜷠𜷡𜷢▟𜷣▆𜷤𜷥█"
         ),
     }

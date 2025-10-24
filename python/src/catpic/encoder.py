@@ -1,8 +1,7 @@
 """
 MEOW v0.6 Encoder - Core functionality
 
-Phase 1: Essential single-layer encoding
-Phase 2: Full animation support with frame metadata
+Encodes images to MEOW format with proper aspect ratio compensation
 """
 
 import json
@@ -11,7 +10,7 @@ from typing import Optional, Union
 
 from PIL import Image
 
-from .core import BASIS, CatpicCore, MEOW_VERSION, MEOW_OSC_NUMBER, DEFAULT_BASIS
+from .core import BASIS, CatpicCore, MEOW_VERSION, MEOW_OSC_NUMBER, DEFAULT_BASIS, get_char_aspect
 from .primitives import image_to_cells, cells_to_ansi_lines
 
 
@@ -73,11 +72,11 @@ class CatpicEncoder:
                 width = term_width
             
             if height is None:
-                # Maintain aspect ratio
-                aspect = img.height / img.width
-                basis_x, basis_y = self.basis_tuple
-                cell_aspect = basis_y / basis_x
-                height = int(width * aspect / cell_aspect)
+                # Maintain aspect ratio with terminal character aspect compensation
+                # Terminal characters are ~2x taller than wide, so multiply by 0.5
+                image_aspect = img.height / img.width
+                char_aspect = get_char_aspect()
+                height = int(width * image_aspect / char_aspect)
             
             # Convert to cells (primitives handles resizing internally)
             cells = image_to_cells(img, width, height, basis=self.basis)
@@ -141,10 +140,9 @@ class CatpicEncoder:
                 width = 80  # Default to 80 columns
             
             if height is None:
-                aspect = img_rgb.height / img_rgb.width
-                basis_x, basis_y = self.basis_tuple
-                cell_aspect = basis_y / basis_x
-                height = int(width * aspect / cell_aspect)
+                image_aspect = img_rgb.height / img_rgb.width
+                char_aspect = get_char_aspect()
+                height = int(width * image_aspect / char_aspect)
             
             # Build MEOW v0.6 file
             parts = []
