@@ -99,7 +99,6 @@ def main(
             is_animated = getattr(img, "is_animated", False)
         
         if is_animated:
-            click.echo("Warning: Animation encoding is Phase 1 - only first frame encoded", err=True)
             meow_content = encoder.encode_animation(image_file, width, height)
         else:
             meow_content = encoder.encode_image(image_file, width, height)

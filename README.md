@@ -27,7 +27,7 @@ Result? A standard 80×24 terminal becomes a 160×96 glyxel display. Not bad for
 - **Multiple BASIS levels**: Trade speed for quality (1×2 to 2×4)
 - **Smooth animations**: GIF playback with no flicker
 - **Primitives API**: Build your own TUI graphics with composable functions
-- **Environment aware**: `CATPIC_BASIS` sets your preferred quality
+- **Environment aware**: Automatic terminal size and aspect ratio detection
 - **Multi-language**: Python (stable), C (in development), Rust/Go (planned)
 
 ## Installation & Usage
@@ -36,16 +36,56 @@ Result? A standard 80×24 terminal becomes a 160×96 glyxel display. Not bad for
 
 Each implementation provides the same core functionality with language-appropriate APIs and conventions.
 
-### Environment Variables
+## Environment Variables
 
-**`CATPIC_BASIS`** - Set default BASIS level for all operations:
+catpic respects these environment variables for configuration:
+
+### `CATPIC_BASIS`
+
+Set your preferred BASIS quality level:
 
 ```bash
 export CATPIC_BASIS=2,4
-catpic photo.jpg  # Uses BASIS 2×4
-
-# Also accepts: 2x4, 2_4
+catpic photo.jpg  # Uses ultra quality by default
 ```
+
+**Supported formats:** `1,2` | `2,2` | `2,3` | `2,4`  
+(You can also use `x` or `_` as separator: `2x4` or `2_4`)
+
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to make permanent.
+
+### `CATPIC_CHAR_ASPECT`
+
+Set terminal character aspect ratio to fix image proportions:
+
+```bash
+export CATPIC_CHAR_ASPECT=2.0
+catpic photo.jpg
+```
+
+**Common values:**
+- `2.0` - Most terminals (default)
+- `1.8` - Wider fonts
+- `2.2` - Narrower fonts
+
+**Why this matters:** Terminal characters are typically taller than they are wide. If your images look squashed (too wide) or stretched (too tall), adjust this value to match your terminal's font proportions.
+
+**Quick calibration:**
+
+If you have a test image with a circle:
+```bash
+catpic circle.png
+
+# If circle looks tall/narrow, decrease:
+export CATPIC_CHAR_ASPECT=1.8
+catpic circle.png
+
+# If circle looks wide/squashed, increase:
+export CATPIC_CHAR_ASPECT=2.2
+catpic circle.png
+```
+
+Once calibrated for your terminal, add to your shell profile.
 
 ## How BASIS Works
 
@@ -60,20 +100,13 @@ Higher BASIS = more glyxels per character = better quality, slower rendering.
 
 ## MEOW Format
 
-**M**osaic **E**ncoding **O**ver **W**ire—glyxel images in plain text:
+**M**osaic **E**ncoding **O**ver **W**ire—glyxel images as plain text with ANSI escape codes.
 
-```
-MEOW/1.0
-WIDTH:80
-HEIGHT:24
-BASIS:2,4
-DATA:
-[ANSI-colored character grid with embedded glyxels]
-```
+MEOW files are `cat`-compatible: they're standard text with embedded metadata and ANSI color codes. No special viewer needed.
 
-The beauty: it's just ANSI escape codes and Unicode. Use `cat`, `less`, `grep`, version control—standard POSIX tools work out of the box.
+**Current version:** 0.6 (uses OSC 9876 escape sequences for metadata)
 
-**Example:**
+**Example usage:**
 ```bash
 # Create
 catpic sunset.jpg -o sunset.meow
@@ -82,11 +115,15 @@ catpic sunset.jpg -o sunset.meow
 cat sunset.meow
 less -R sunset.meow
 head -n 30 sunset.meow  # Preview
-
-# Share
-git add sunset.meow     # Version control friendly
-echo "sunset.meow" | xargs cat  # Standard text processing
 ```
+
+MEOW files contain:
+- Canvas metadata (size, animation settings, BASIS)
+- Layer metadata (position, transparency, frame timing)
+- Standard ANSI escape codes for colors
+- Unicode characters encoding glyxel patterns
+
+**Format specification:** See [spec/meow_v06_specification.md](spec/meow_v06_specification.md)
 
 ## Project Structure
 
@@ -115,7 +152,7 @@ Language-specific APIs differ to match ecosystem conventions.
 
 - **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Installation and usage for each language
 - **[docs/primitives_api.md](docs/primitives_api.md)** - Low-level API for TUI development
-- **[spec/meow_format.md](spec/meow_format.md)** - Format specification
+- **[spec/meow_v06_specification.md](spec/meow_v06_specification.md)** - Format specification
 - **[spec/compliance.md](spec/compliance.md)** - Cross-language test requirements
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development guidelines
 

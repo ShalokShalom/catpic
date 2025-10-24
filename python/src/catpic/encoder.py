@@ -6,6 +6,7 @@ Encodes images to MEOW format with proper aspect ratio compensation
 
 import json
 from pathlib import Path
+from shutil import get_terminal_size
 from typing import Optional, Union
 
 from PIL import Image
