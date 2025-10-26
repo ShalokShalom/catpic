@@ -49,8 +49,21 @@ export CATPIC_BASIS=2,4
 catpic photo.jpg  # Uses ultra quality by default
 ```
 
-**Supported formats:** `1,2` | `2,2` | `2,3` | `2,4`  
+**Available BASIS levels:**
+
+| BASIS | Patterns | Quality | Unicode Requirement |
+|-------|----------|---------|---------------------|
+| `1,2` | 4 | Fast, chunky | Basic (block elements) |
+| `2,2` | 16 | Balanced (default) | Unicode 13.0+ (2020) |
+| `2,3` | 64 | Smooth gradients | Unicode 13.0+ (2020) |
+| `2,4` | 256 | Maximum detail | Unicode 3.0 (Braille) |
+
+**Format:** `1,2` \| `2,2` \| `2,3` \| `2,4`  
 (You can also use `x` or `_` as separator: `2x4` or `2_4`)
+
+**Terminal compatibility:** Most modern terminals support all BASIS levels. If you see missing characters or boxes, your terminal may need:
+- Updated Unicode fonts (for 2×2 and 2×3 quadrant/sextant blocks)
+- Braille pattern support (for 2×4)
 
 Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to make permanent.
 
