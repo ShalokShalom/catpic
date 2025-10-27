@@ -44,7 +44,11 @@ class CatpicEncoder:
         height: Optional[int] = None,
     ) -> str:
         """
-        Encode a static image to MEOW v0.6 format.
+        Encode a static image to MEOW v0.6 format with layer zero.
+        
+        Layer zero reserves vertical space and establishes cursor origin,
+        ensuring images display correctly even when terminal cursor is
+        near bottom of screen.
         
         Args:
             image_path: Path to image file
@@ -52,7 +56,7 @@ class CatpicEncoder:
             height: Output height in characters (default: auto from aspect ratio)
         
         Returns:
-            MEOW v0.6 formatted string with OSC 9876 metadata
+            MEOW v0.6 formatted string with layer zero structure
         """
         # Load image
         with Image.open(image_path) as img:
@@ -61,11 +65,6 @@ class CatpicEncoder:
             # Calculate dimensions
             if width is None:
                 width = 80  # Default to 80 columns
-            
-            # Cap width to terminal size to prevent wrapping corruption
-            term_width, _ = get_terminal_size()
-            if width > term_width:
-                width = term_width
             
             # Cap width to terminal size to prevent wrapping corruption
             term_width, _ = get_terminal_size()
@@ -86,20 +85,32 @@ class CatpicEncoder:
             ansi_lines = cells_to_ansi_lines(cells)
             ansi_output = '\n'.join(ansi_lines)
         
-        # Build MEOW v0.6 file
+        # Build MEOW v0.6 file with layer zero structure
         parts = []
         
-        # Canvas block (optional but recommended)
+        # Canvas metadata
         canvas_metadata = {
             "meow": MEOW_VERSION,
             "size": [width, height],
             "basis": list(self.basis_tuple),
         }
         canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
-        parts.append(f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07')
         
-        # Layer block with visible output
+        # Layer zero: Canvas metadata + newlines + move up + save
+        layer_zero = (
+            f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
+            f'{"\n" * height}'                            # Reserve height lines (scroll if needed)
+            f'\x1b[{height}A'                             # Move up to canvas top
+            f'\x1b[s'                                     # Save cursor (origin for layers)
+        )
+        parts.append(layer_zero)
+        
+        # Visual layer content
         parts.append(ansi_output)
+        
+        # Footer: Restore to origin, move to bottom, add newline
+        footer = f'\x1b[u\x1b[{height}B\n'
+        parts.append(footer)
         
         return ''.join(parts)
     
@@ -111,16 +122,19 @@ class CatpicEncoder:
         delay: Optional[int] = None,
     ) -> str:
         """
-        Encode animated GIF to MEOW v0.6 format.
+        Encode animated GIF to MEOW v0.6 format with layer zero.
+        
+        Layer zero reserves vertical space for animation, ensuring frames
+        display correctly even when terminal cursor is near bottom.
         
         Args:
             image_path: Path to animated GIF
-            width: Output width in characters (default: terminal width)
+            width: Output width in characters (default: 80)
             height: Output height in characters (default: auto from aspect)
             delay: Override frame delay in milliseconds (default: from GIF)
         
         Returns:
-            MEOW v0.6 formatted string with frame metadata
+            MEOW v0.6 formatted string with layer zero and frame metadata
         """
         with Image.open(image_path) as img:
             if not getattr(img, "is_animated", False):
@@ -145,10 +159,10 @@ class CatpicEncoder:
                 char_aspect = get_char_aspect()
                 height = int(width * image_aspect / char_aspect)
             
-            # Build MEOW v0.6 file
+            # Build MEOW v0.6 file with layer zero structure
             parts = []
             
-            # Canvas block with loop and size
+            # Canvas metadata with loop
             canvas_metadata = {
                 "meow": MEOW_VERSION,
                 "size": [width, height],
@@ -156,7 +170,15 @@ class CatpicEncoder:
                 "loop": 0,  # Infinite loop
             }
             canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
-            parts.append(f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07')
+            
+            # Layer zero: Canvas metadata + newlines + move up + save
+            layer_zero = (
+                f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
+                f'{"\n" * height}'                            # Reserve height lines (scroll if needed)
+                f'\x1b[{height}A'                             # Move up to canvas top
+                f'\x1b[s'                                     # Save cursor (origin for frames)
+            )
+            parts.append(layer_zero)
             
             # Encode each frame as a layer with frame number
             for frame_idx in range(frame_count):
@@ -181,6 +203,10 @@ class CatpicEncoder:
                 
                 # Frame separator for cat viewing (visual divider)
                 parts.append(f'\n\x1b[2m--- Frame {frame_idx + 1}/{frame_count} ---\x1b[0m\n')
+            
+            # Footer: Restore to origin, move to bottom, add newline
+            footer = f'\x1b[u\x1b[{height}B\n'
+            parts.append(footer)
             
             return ''.join(parts)
 
