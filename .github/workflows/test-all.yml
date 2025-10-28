@@ -112,7 +112,8 @@ jobs:
         working-directory: ./python
         run: |
           echo "=== Checking package contents ==="
-          tar -tzf dist/catpic-0.5.2.tar.gz | grep -E '(README|IMPLEMENTATION|docs|spec)' || true
+          # Use wildcard to match any version
+          tar -tzf dist/catpic-*.tar.gz | grep -E '(README|IMPLEMENTATION|docs|spec)' || true
           echo "=== Package check complete ==="
 
   # Test C implementation (template for when C is implemented)
