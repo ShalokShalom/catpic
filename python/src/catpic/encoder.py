@@ -97,9 +97,10 @@ class CatpicEncoder:
         canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
         
         # Layer zero: Canvas metadata + newlines + move up + save
+        newlines = "\n" * height
         layer_zero = (
             f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
-            f'{"\n" * height}'                            # Reserve height lines (scroll if needed)
+            f'{newlines}'                                 # Reserve height lines (scroll if needed)
             f'\x1b[{height}A'                             # Move up to canvas top
             f'\x1b[s'                                     # Save cursor (origin for layers)
         )
@@ -172,11 +173,12 @@ class CatpicEncoder:
             canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
             
             # Layer zero: Canvas metadata + newlines + move up + save
+            newlines = "\n" * height
             layer_zero = (
                 f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
-                f'{"\n" * height}'                            # Reserve height lines (scroll if needed)
+                f'{newlines}'                                 # Reserve height lines (scroll if needed)
                 f'\x1b[{height}A'                             # Move up to canvas top
-                f'\x1b[s'                                     # Save cursor (origin for frames)
+                f'\x1b[s'                                     # Save cursor (origin for layers)
             )
             parts.append(layer_zero)
             
