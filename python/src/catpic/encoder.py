@@ -11,7 +11,10 @@ from typing import Optional, Union
 
 from PIL import Image
 
-from .core import BASIS, CatpicCore, MEOW_VERSION, MEOW_OSC_NUMBER, DEFAULT_BASIS, get_char_aspect
+from .core import (
+    BASIS, CatpicCore, MEOW_VERSION, MEOW_OSC_NUMBER, DEFAULT_BASIS,
+    get_char_aspect, build_layer_zero, build_footer
+)
 from .primitives import image_to_cells, cells_to_ansi_lines
 
 
@@ -88,30 +91,17 @@ class CatpicEncoder:
         # Build MEOW v0.6 file with layer zero structure
         parts = []
         
-        # Canvas metadata
         canvas_metadata = {
             "meow": MEOW_VERSION,
             "size": [width, height],
             "basis": list(self.basis_tuple),
         }
-        canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
-        
-        # Layer zero: Canvas metadata + newlines + move up + save
-        newlines = "\n" * height
-        layer_zero = (
-            f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
-            f'{newlines}'                                 # Reserve height lines (scroll if needed)
-            f'\x1b[{height}A'                             # Move up to canvas top
-            f'\x1b[s'                                     # Save cursor (origin for layers)
-        )
-        parts.append(layer_zero)
+        parts.append(build_layer_zero(canvas_metadata, height))
         
         # Visual layer content
         parts.append(ansi_output)
         
-        # Footer: Restore to origin, move to bottom, add newline
-        footer = f'\x1b[u\x1b[{height}B\n'
-        parts.append(footer)
+        parts.append(build_footer(height))
         
         return ''.join(parts)
     
@@ -163,24 +153,13 @@ class CatpicEncoder:
             # Build MEOW v0.6 file with layer zero structure
             parts = []
             
-            # Canvas metadata with loop
             canvas_metadata = {
                 "meow": MEOW_VERSION,
                 "size": [width, height],
                 "basis": list(self.basis_tuple),
                 "loop": 0,  # Infinite loop
             }
-            canvas_json = json.dumps(canvas_metadata, separators=(',', ':'))
-            
-            # Layer zero: Canvas metadata + newlines + move up + save
-            newlines = "\n" * height
-            layer_zero = (
-                f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
-                f'{newlines}'                                 # Reserve height lines (scroll if needed)
-                f'\x1b[{height}A'                             # Move up to canvas top
-                f'\x1b[s'                                     # Save cursor (origin for layers)
-            )
-            parts.append(layer_zero)
+            parts.append(build_layer_zero(canvas_metadata, height))
             
             # Encode each frame as a layer with frame number
             for frame_idx in range(frame_count):
@@ -206,9 +185,7 @@ class CatpicEncoder:
                 # Frame separator for cat viewing (visual divider)
                 parts.append(f'\n\x1b[2m--- Frame {frame_idx + 1}/{frame_count} ---\x1b[0m\n')
             
-            # Footer: Restore to origin, move to bottom, add newline
-            footer = f'\x1b[u\x1b[{height}B\n'
-            parts.append(footer)
+            parts.append(build_footer(height))
             
             return ''.join(parts)
 

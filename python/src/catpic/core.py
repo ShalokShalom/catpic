@@ -171,3 +171,48 @@ class CatpicCore:
     def get_basis_dimensions(basis: BASIS) -> Tuple[int, int]:
         """Get pixel dimensions for a BASIS level."""
         return basis.value
+
+
+# Layer Zero and Footer Construction
+# Single source of truth for MEOW file structure
+
+import json as _json
+from typing import Optional as _Optional
+
+
+def build_layer_zero(canvas_metadata: dict, height: int) -> str:
+    """
+    Build layer zero structure for MEOW files.
+    
+    Layer zero reserves vertical space in the terminal and establishes
+    a stable cursor origin for all visual layers.
+    
+    Args:
+        canvas_metadata: Dictionary with canvas metadata (meow, size, basis, etc.)
+        height: Canvas height in characters
+    
+    Returns:
+        Layer zero string (single logical line)
+    """
+    canvas_json = _json.dumps(canvas_metadata, separators=(',', ':'), ensure_ascii=False)
+    newlines = "\n" * height
+    
+    return (
+        f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata (invisible)
+        f'{newlines}'                                 # Reserve height lines
+        f'\x1b[{height}A'                             # Move up to canvas top
+        f'\x1b[s'                                     # Save cursor (origin)
+    )
+
+
+def build_footer(height: int) -> str:
+    """
+    Build footer for cursor cleanup.
+    
+    Args:
+        height: Canvas height in characters
+    
+    Returns:
+        Footer string (single line)
+    """
+    return f'\x1b[u\x1b[{height}B\n'

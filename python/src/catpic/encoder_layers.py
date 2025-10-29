@@ -12,7 +12,10 @@ from typing import Optional
 
 from PIL import Image
 
-from .core import BASIS, MEOW_VERSION, MEOW_OSC_NUMBER, get_char_aspect
+from .core import (
+    BASIS, MEOW_VERSION, MEOW_OSC_NUMBER,
+    get_char_aspect, build_layer_zero, build_footer
+)
 from .primitives import image_to_cells, cells_to_ansi_lines
 
 
@@ -192,8 +195,8 @@ class LayerEncoder:
         Layer zero structure:
         - Canvas metadata OSC
         - Height newlines (forces terminal scroll, reserves space)
-        - Cursor save at bottom of canvas
-        - Move up to top of canvas
+        - Move up to canvas top
+        - Save cursor at top
         
         This ensures canvas always displays fully even near terminal bottom.
         
@@ -208,7 +211,7 @@ class LayerEncoder:
         """
         width, height = canvas_size
         
-        # Build canvas block (layer zero metadata)
+        # Build canvas metadata
         canvas_metadata = {
             "meow": MEOW_VERSION,
             "size": [width, height],
@@ -220,28 +223,14 @@ class LayerEncoder:
         if loop is not None:
             canvas_metadata["loop"] = loop
         
-        canvas_json = json.dumps(canvas_metadata, separators=(',', ':'), ensure_ascii=False)
-        
-        # Layer zero: Canvas metadata + newlines + move up + save
-        # This reserves vertical space and saves cursor at canvas top
-        layer_zero = (
-            f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata
-            f'{"\n" * height}'                            # Reserve height lines
-            f'\x1b[{height}A'                             # Move up to canvas top
-            f'\x1b[s'                                     # Save cursor (top of canvas)
-        )
-        
         # Encode visual layer
         layer_block = self.encode_layer(spec, is_first_layer=False)
         
-        # Footer: Restore to canvas top, then move to bottom + newline
-        footer = f'\x1b[u\x1b[{height}B\n'
-        
         # Combine layer zero + visual layer + footer
         parts = [
-            layer_zero,
+            build_layer_zero(canvas_metadata, height),
             layer_block,
-            footer
+            build_footer(height)
         ]
         
         return ''.join(parts)
@@ -307,8 +296,8 @@ class LayerComposer:
         Layer zero structure:
         - Canvas metadata OSC
         - Height newlines (forces terminal scroll, reserves space)
-        - Cursor save at bottom of canvas
-        - Move up to top of canvas
+        - Move up to canvas top
+        - Save cursor at top
         
         Visual layers use cursor restore + relative positioning from saved origin.
         Footer restores cursor to bottom and adds final newline.
@@ -328,7 +317,6 @@ class LayerComposer:
         
         parts = []
         
-        # Layer zero: Canvas metadata + newlines + save + move up
         width, height = self.canvas_size
         canvas_metadata = {
             "meow": MEOW_VERSION,
@@ -341,24 +329,14 @@ class LayerComposer:
         if loop is not None:
             canvas_metadata["loop"] = loop
         
-        canvas_json = json.dumps(canvas_metadata, separators=(',', ':'), ensure_ascii=False)
-        
-        # Layer zero on single line with embedded newlines
-        layer_zero = (
-            f'\x1b]{MEOW_OSC_NUMBER};{canvas_json}\x07'  # Canvas metadata
-            f'{"\n" * height}'                            # Reserve height lines
-            f'\x1b[{height}A'                             # Move up to top
-            f'\x1b[s'                                     # Save cursor (top of canvas)
-        )
-        parts.append(layer_zero)
+        parts.append(build_layer_zero(canvas_metadata, height))
         
         # Encode each visual layer in order (first = bottom)
         for layer_spec in self.layers:
             layer_block = self.encoder.encode_layer(layer_spec, is_first_layer=False)
             parts.append(layer_block)
         
-        # Footer: Move down to bottom of canvas + newline
-        parts.append(f'\x1b[{height}B\n')
+        parts.append(build_footer(height))
         
         return ''.join(parts)
     
