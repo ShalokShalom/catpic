@@ -4,8 +4,8 @@ import os
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
-# MEOW v0.6 format constants
-MEOW_VERSION = "0.6"
+# MEOW v0.7 format constants
+MEOW_VERSION = "0.7"
 MEOW_OSC_NUMBER = 9876
 MEOW_OSC_PREFIX = f"\x1b]{MEOW_OSC_NUMBER};"
 MEOW_OSC_SUFFIX = "\x07"
@@ -16,6 +16,8 @@ DEFAULT_CANVAS_SIZE = (80, 24)
 DEFAULT_ALPHA = 1.0
 DEFAULT_FRAME_DELAY = 100  # milliseconds
 DEFAULT_CHAR_ASPECT = 2.0  # Terminal characters are roughly 2:1 (height:width)
+SUPPORTED_SOURCE_FORMATS = ["png"] # Protocol-related constants (v0.7)
+DEFAULT_SOURCE_FORMAT = "png"
 
 # Exit codes (MEOW v0.6 spec)
 EXIT_SUCCESS = 0

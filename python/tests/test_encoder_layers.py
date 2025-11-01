@@ -1,5 +1,5 @@
 """
-Test suite for MEOW v0.6 layer encoding infrastructure.
+Test suite for MEOW v0.7 layer encoding infrastructure.
 
 Tests LayerSpec, LayerEncoder, and LayerComposer functionality.
 """
@@ -221,7 +221,7 @@ class TestLayerEncoder:
         )
         
         # Check for canvas block
-        assert '"meow":"0.6"' in output
+        assert '"meow":"0.7"' in output
         assert '"size":[40,20]' in output
         assert '"basis":[2,2]' in output
         
@@ -363,7 +363,7 @@ class TestLayerComposer:
         output = composer.render()
         
         # Check canvas block
-        assert '"meow":"0.6"' in output
+        assert '"meow":"0.7"' in output
         assert '"size":[40,20]' in output
         
         # Check layer block
@@ -480,9 +480,9 @@ class TestLayerIntegration:
             canvas_size=(30, 20),
         )
         
-        # Should be valid MEOW v0.6
+        # Should be valid MEOW v0.7
         assert '\x1b]9876;' in output
-        assert '"meow":"0.6"' in output
+        assert '"meow":"0.7"' in output
         assert '"id":"static"' in output
     
     def test_animation_frames_as_layers(self, red_image, blue_image, green_image):
@@ -575,5 +575,5 @@ class TestConcatenation:
         assert '"id":"layer2"' in concatenated
         
         # Should have canvas from first file
-        assert '"meow":"0.6"' in concatenated
+        assert '"meow":"0.7"' in concatenated
         assert '"size":[40,20]' in concatenated
