@@ -141,11 +141,23 @@ def _display_animated(meow: MEOWFile, meld: bool):
     # Get canvas height
     canvas_height = meow.canvas.size[1] if meow.canvas and meow.canvas.size else 24
     
+    # Emit layer zero to scroll terminal and establish origin
+    # This matches static image behavior and prevents clipping at terminal bottom
+    if meow.canvas and meow.canvas.size:
+        height = meow.canvas.size[1]
+        # Reserve vertical space (scroll terminal)
+        print('\n' * height, end='')
+        # Move up to canvas top
+        print(f'\x1b[{height}A', end='')
+        # Save cursor at canvas origin
+        print('\x1b[s', end='')
+        sys.stdout.flush()
+    
     # Auto-truncate to fit terminal (leave room for prompt)
     display_height = min(canvas_height, term_height - 2)
     
-    # Save cursor position and hide cursor at start
-    print('\x1b[s\x1b[?25l', end='', flush=True)
+    # Hide cursor for animation
+    print('\x1b[?25l', end='', flush=True)
     
     try:
         iteration = 0
@@ -203,10 +215,7 @@ def _display_animated(meow: MEOWFile, meld: bool):
         print('\x1b[u\x1b[?25h', end='', flush=True)
         
         # Move cursor below animation
-        for _ in range(display_height):
-            print('\x1b[B', end='')
-        print()  # Final newline for prompt
-
+        print(f'\x1b[{canvas_height}B')
 
 def show_info(filepath: str):
     """
