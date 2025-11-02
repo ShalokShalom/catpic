@@ -1,5 +1,5 @@
 """
-MEOW v0.6 parser - Core data structures and parsing logic
+MEOW v0.7 parser - Core data structures and parsing logic
 """
 
 import json
@@ -30,7 +30,7 @@ def strip_frame_markers(text: str) -> str:
 
 @dataclass
 class CanvasBlock:
-    """MEOW v0.6 Canvas metadata block"""
+    """MEOW v0.7 Canvas metadata block"""
     version: str
     size: Optional[tuple[int, int]] = None
     meld: bool = False
@@ -45,7 +45,7 @@ class CanvasBlock:
 
 @dataclass
 class LayerBlock:
-    """MEOW v0.6 Layer metadata block"""
+    """MEOW v0.7 Layer metadata block"""
     id: Optional[str] = None
     box: Optional[dict[str, int]] = None
     alpha: float = DEFAULT_ALPHA
@@ -156,8 +156,8 @@ class LayerBlock:
 
 
 @dataclass
-class MEOWFile:
-    """Parsed MEOW v0.6 file"""
+class MEOWContent:
+    """Parsed MEOW v0.7 file"""
     canvas: Optional[CanvasBlock] = None
     layers: list[LayerBlock] = field(default_factory=list)
     
@@ -226,7 +226,7 @@ class MEOWFile:
 
 
 class MEOWParser:
-    """Parser for MEOW v0.6 format"""
+    """Parser for MEOW v0.7 format"""
     
     def __init__(self):
         self.canvas: Optional[CanvasBlock] = None
@@ -234,8 +234,8 @@ class MEOWParser:
         self.layers: list[LayerBlock] = []
         self.any_meld_hint = False
     
-    def parse(self, data: bytes) -> MEOWFile:
-        """Parse MEOW v0.6 file data"""
+    def parse(self, data: bytes) -> MEOWContent:
+        """Parse MEOW v0.7 file data"""
         # Convert to string for processing
         try:
             text = data.decode('utf-8', errors='replace')
@@ -298,7 +298,7 @@ class MEOWParser:
                     self.layers.append(layer)
         
         # Use last canvas block (concatenation semantics)
-        return MEOWFile(canvas=self.last_canvas, layers=self.layers)
+        return MEOWContent(canvas=self.last_canvas, layers=self.layers)
     
     def _parse_metadata(self, data: bytes) -> dict:
         """Parse metadata (plain JSON or compressed)"""
