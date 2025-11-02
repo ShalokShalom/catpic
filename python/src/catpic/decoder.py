@@ -1,16 +1,17 @@
+# Destination: src/catpic/decoder.py
+
 """
-MEOW v0.6 decoder - Display and manipulation
+MEOW v0.7 decoder - Display and manipulation
 """
 
 import sys
 import time
 import os
-import re
 from pathlib import Path
-from typing import Optional
+from typing import Union
 
-from .core import EXIT_ERROR_FILE_NOT_FOUND, DEFAULT_FRAME_DELAY
-from .meow_parser import MEOWParser, MEOWFile
+from .core import EXIT_ERROR_FILE_NOT_FOUND, EXIT_ERROR_GENERAL, DEFAULT_FRAME_DELAY
+from .meow_parser import MEOWParser, MEOWContent
 
 
 def get_terminal_size() -> tuple[int, int]:
@@ -65,18 +66,22 @@ def truncate_ansi_output(output: str, max_width: int, max_height: int) -> str:
     return '\n'.join(truncated_lines)
 
 
-def load_meow(filepath: str) -> MEOWFile:
+# ============================================================================
+# File I/O Operations
+# ============================================================================
+
+def load_meow_file(filepath: Union[str, Path]) -> bytes:
     """
-    Load and parse a MEOW file
+    Load MEOW file from disk as bytes.
     
     Args:
         filepath: Path to .meow file
         
     Returns:
-        Parsed MEOWFile object
+        MEOW content as bytes
         
     Raises:
-        SystemExit: With code 5 if file not found
+        SystemExit: With code 5 if file not found or cannot be read
     """
     path = Path(filepath)
     
@@ -85,36 +90,82 @@ def load_meow(filepath: str) -> MEOWFile:
         sys.exit(EXIT_ERROR_FILE_NOT_FOUND)
     
     try:
-        data = path.read_bytes()
+        return path.read_bytes()
     except Exception as e:
         print(f"Error: Cannot read file {filepath}: {e}", file=sys.stderr)
         sys.exit(EXIT_ERROR_FILE_NOT_FOUND)
-    
-    parser = MEOWParser()
-    return parser.parse(data)
 
 
-def display_meow(filepath: str, meld: bool = False):
+def save_meow_file(filepath: Union[str, Path], content: Union[str, bytes]) -> None:
     """
-    Display a MEOW file to terminal
+    Save MEOW content to disk.
     
     Args:
-        filepath: Path to .meow file
-        meld: Force runtime melding (translucency recomputation)
+        filepath: Destination path
+        content: MEOW content (string or bytes)
+        
+    Raises:
+        SystemExit: If file cannot be written
     """
-    meow = load_meow(filepath)
+    path = Path(filepath)
+    
+    try:
+        if isinstance(content, str):
+            path.write_text(content, encoding='utf-8')
+        else:
+            path.write_bytes(content)
+    except Exception as e:
+        print(f"Error: Cannot write file {filepath}: {e}", file=sys.stderr)
+        sys.exit(EXIT_ERROR_GENERAL)
+
+
+# ============================================================================
+# Display Operations
+# ============================================================================
+
+def display_meow(content: Union[str, bytes], meld: bool = False) -> None:
+    """
+    Display MEOW content to terminal.
+
+    Args:
+        content: MEOW format content (string or bytes)
+        meld: Force runtime melding (translucency recomputation)
+    
+    Raises:
+        SystemExit: If content cannot be parsed
+    """
+    # For static images, just print the content directly (includes footer)
+    # For animations, parse and use frame-by-frame playback
+    
+    # Parse to check if animated
+    try:
+        parser = MEOWParser()
+        if isinstance(content, str):
+            content_bytes = content.encode('utf-8')
+        else:
+            content_bytes = content
+        
+        meow = parser.parse(content_bytes)
+    except Exception as e:
+        print(f"Error: Invalid MEOW content: {e}", file=sys.stderr)
+        sys.exit(EXIT_ERROR_GENERAL)
     
     # Check if animated
     has_frames = any(layer.frame is not None for layer in meow.layers)
-    
+
     if has_frames:
         _display_animated(meow, meld)
     else:
-        _display_static(meow, meld)
+        # Static: print raw content (includes layer zero + footer)
+        if isinstance(content, bytes):
+            print(content.decode('utf-8'), end='')
+        else:
+            print(content, end='')
+        sys.stdout.flush()
 
 
-def _display_static(meow: MEOWFile, meld: bool):
-    """Display static (non-animated) MEOW file"""
+def _display_static(meow: MEOWContent, meld: bool):
+    """Display static (non-animated) MEOW content."""
     # Get terminal size for truncation
     term_width, term_height = get_terminal_size()
     
@@ -126,11 +177,13 @@ def _display_static(meow: MEOWFile, meld: bool):
             truncated = truncate_ansi_output(layer.visible_output, term_width, display_height)
             print(truncated, end='')
     
+    # Add trailing newline for clean prompt positioning
+    print()
     sys.stdout.flush()
 
 
-def _display_animated(meow: MEOWFile, meld: bool):
-    """Display animated MEOW file"""
+def _display_animated(meow: MEOWContent, meld: bool):
+    """Display animated MEOW content."""
     frames = meow.group_by_frame()
     loop_count = meow.canvas.loop if meow.canvas else 1
     is_infinite = meow.canvas.is_infinite_loop() if meow.canvas else False
@@ -217,14 +270,43 @@ def _display_animated(meow: MEOWFile, meld: bool):
         # Move cursor below animation
         print(f'\x1b[{canvas_height}B')
 
-def show_info(filepath: str):
+
+# ============================================================================
+# Metadata Operations
+# ============================================================================
+
+def parse_meow(content: Union[str, bytes]) -> MEOWContent:
     """
-    Display metadata information about a MEOW file
+    Parse MEOW content to MEOWContent object.
+    
+    Args:
+        content: MEOW format content (string or bytes)
+        
+    Returns:
+        Parsed MEOWContent object
+        
+    Raises:
+        ValueError: If content cannot be parsed
+    """
+    try:
+        parser = MEOWParser()
+        if isinstance(content, str):
+            return parser.parse(content.encode('utf-8'))
+        else:
+            return parser.parse(content)
+    except Exception as e:
+        raise ValueError(f"Invalid MEOW content: {e}")
+
+
+def show_info(filepath: Union[str, Path]) -> None:
+    """
+    Display metadata information about a MEOW file.
     
     Args:
         filepath: Path to .meow file
     """
-    meow = load_meow(filepath)
+    content = load_meow_file(filepath)
+    meow = parse_meow(content)
     
     # Canvas information
     if meow.canvas:
@@ -286,3 +368,23 @@ def show_info(filepath: str):
         
         if layer.visible_output:
             print(f"  Visible Output: {len(layer.visible_output)} bytes")
+
+
+# ============================================================================
+# Deprecated - Backward Compatibility
+# ============================================================================
+
+def load_meow(filepath: str) -> MEOWContent:
+    """
+    DEPRECATED: Use load_meow_file() + parse_meow() instead.
+    
+    Load and parse a MEOW file.
+    
+    Args:
+        filepath: Path to .meow file
+        
+    Returns:
+        Parsed MEOWContent object
+    """
+    content = load_meow_file(filepath)
+    return parse_meow(content)

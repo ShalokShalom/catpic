@@ -1,4 +1,6 @@
-"""Command-line interface for catpic MEOW v0.6."""
+# Destination: src/catpic/cli.py
+
+"""Command-line interface for catpic MEOW v0.7."""
 
 from pathlib import Path
 from typing import Optional
@@ -6,7 +8,7 @@ from typing import Optional
 import click
 
 from .core import BASIS, get_default_basis
-from .decoder import load_meow, display_meow, show_info as show_meow_info
+from .decoder import load_meow_file, display_meow, show_info as show_meow_info
 from .encoder import CatpicEncoder
 
 
@@ -37,7 +39,7 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--output", "-o", type=click.Path(path_type=Path), help="Save to .meow file")
 @click.option("--info", "-i", is_flag=True, help="Show file information")
 @click.option("--meld", is_flag=True, help="Force runtime melding (Phase 2 feature)")
-@click.version_option(version="0.6.0")
+@click.version_option(version="0.7.0")
 def main(
     image_file: Path,
     basis: Optional[str],
@@ -48,7 +50,7 @@ def main(
     meld: bool,
 ) -> None:
     """
-    catpic - Terminal image viewer using MEOW v0.6 format.
+    catpic - Terminal image viewer using MEOW v0.7 format.
 
     Examples:
       catpic photo.jpg                     # Encode and display
@@ -61,6 +63,7 @@ def main(
       
     Phase 1: Single-layer static images
     Phase 2: Multi-layer, animation, translucency
+    Phase 3: Protocol support (Sixel, Kitty, iTerm2)
     """
     # Parse BASIS
     if basis is None:
@@ -81,7 +84,9 @@ def main(
         if info:
             show_meow_info(str(image_file))
         else:
-            display_meow(str(image_file), meld=meld)
+            # Load file and display (load_meow_file returns bytes)
+            content = load_meow_file(str(image_file))
+            display_meow(content, meld=meld)
         return
 
     # Handle regular images
@@ -103,21 +108,13 @@ def main(
         else:
             meow_content = encoder.encode_image(image_file, width, height)
         
-        # Output
+        # Output (encoder returns string)
         if output:
             output.write_text(meow_content, encoding='utf-8')
             click.echo(f"Saved to {output}")
         else:
-            # Display directly
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.meow', delete=False) as tmp:
-                tmp.write(meow_content)
-                tmp_path = tmp.name
-            
-            try:
-                display_meow(tmp_path, meld=meld)
-            finally:
-                Path(tmp_path).unlink()
+            # Display encoded content (string)
+            display_meow(meow_content, meld=meld)
     
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
