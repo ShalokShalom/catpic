@@ -1,17 +1,20 @@
 # Destination: src/catpic/decoder.py
 
 """
-MEOW v0.7 decoder - Display and manipulation
+MEOW v0.7 decoder - Protocol-aware display with graceful fallback
 """
 
 import sys
 import time
 import os
+import base64
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 from .core import EXIT_ERROR_FILE_NOT_FOUND, EXIT_ERROR_GENERAL, DEFAULT_FRAME_DELAY
 from .meow_parser import MEOWParser, MEOWContent
+from .protocols import get_generator, list_protocols
+from .protocols.core import decode_png
 
 
 def get_terminal_size() -> tuple[int, int]:
@@ -123,21 +126,24 @@ def save_meow_file(filepath: Union[str, Path], content: Union[str, bytes]) -> No
 # Display Operations
 # ============================================================================
 
-def display_meow(content: Union[str, bytes], meld: bool = False) -> None:
+def display_meow(
+    content: Union[str, bytes],
+    meld: bool = False,
+    protocol: Optional[str] = None,
+) -> None:
     """
-    Display MEOW content to terminal.
+    Display MEOW content to terminal with protocol support.
 
     Args:
         content: MEOW format content (string or bytes)
         meld: Force runtime melding (translucency recomputation)
+        protocol: Protocol to use ('glyxel', 'sixel', 'kitty', etc.)
+                 None = use visible output (glyxel fallback)
     
     Raises:
         SystemExit: If content cannot be parsed
     """
-    # For static images, just print the content directly (includes footer)
-    # For animations, parse and use frame-by-frame playback
-    
-    # Parse to check if animated
+    # Parse content
     try:
         parser = MEOWParser()
         if isinstance(content, str):
@@ -154,31 +160,86 @@ def display_meow(content: Union[str, bytes], meld: bool = False) -> None:
     has_frames = any(layer.frame is not None for layer in meow.layers)
 
     if has_frames:
+        # Animations always use visible output (for now)
         _display_animated(meow, meld)
     else:
-        # Static: print raw content (includes layer zero + footer)
-        if isinstance(content, bytes):
-            print(content.decode('utf-8'), end='')
-        else:
-            print(content, end='')
-        sys.stdout.flush()
+        # Static images can use protocol display
+        _display_static(meow, meld, protocol, content_bytes)
 
 
-def _display_static(meow: MEOWContent, meld: bool):
-    """Display static (non-animated) MEOW content."""
-    # Get terminal size for truncation
-    term_width, term_height = get_terminal_size()
+def _display_static(
+    meow: MEOWContent,
+    meld: bool,
+    protocol: Optional[str],
+    raw_content: bytes,
+) -> None:
+    """
+    Display static MEOW content with protocol support.
     
-    # Leave 1 line for prompt to avoid scrolling
-    display_height = term_height - 1
+    If protocol specified and cells field present, use protocol display.
+    Otherwise fall back to visible output (glyxel).
+    """
+    # Try protocol display if requested
+    if protocol and protocol != 'glyxel':
+        # Look for layer with cells field
+        for layer in meow.layers:
+            if layer.cells and layer.ctype == 'png':
+                try:
+                    # Decode PNG from cells field
+                    png_data = base64.b64decode(layer.cells)
+                    img = decode_png(png_data)
+                    
+                    # Get terminal dimensions
+                    term_width, term_height = get_terminal_size()
+                    
+                    # Calculate display size (fit to terminal)
+                    # FUTURE: Support --width/--height overrides
+                    from .protocols import ProtocolConfig
+                    from .core import get_char_aspect
+                    
+                    # Calculate dimensions that fit terminal
+                    img_aspect = img.height / img.width
+                    char_aspect = get_char_aspect()
+                    
+                    display_width = min(term_width - 1, 120)  # Leave margin
+                    display_height = int(display_width * img_aspect / char_aspect)
+                    
+                    # Limit to terminal height (leave room for prompt)
+                    if display_height > term_height - 2:
+                        display_height = term_height - 2
+                        display_width = int(display_height * char_aspect / img_aspect)
+                    
+                    config = ProtocolConfig(
+                        max_width=display_width,
+                        max_height=display_height,
+                    )
+                    
+                    # Generate protocol output
+                    generator = get_generator(protocol)
+                    
+                    # Re-encode PNG for protocol (with resizing)
+                    from .protocols.core import encode_png, resize_if_needed
+                    resized_img = resize_if_needed(img, display_width, display_height, preserve_aspect=True)
+                    resized_png = encode_png(resized_img)
+                    
+                    output = generator.generate(resized_png, config)
+                    
+                    # Display protocol output
+                    print(output.decode('utf-8'), end='')
+                    print()  # Trailing newline
+                    sys.stdout.flush()
+                    return
+                    
+                except Exception as e:
+                    # Protocol display failed, fall back to glyxel
+                    print(f"Warning: Protocol display failed: {e}", file=sys.stderr)
+                    print("Falling back to glyxel...", file=sys.stderr)
     
-    for layer in meow.layers:
-        if layer.visible_output:
-            truncated = truncate_ansi_output(layer.visible_output, term_width, display_height)
-            print(truncated, end='')
-    
-    # Add trailing newline for clean prompt positioning
-    print()
+    # Fallback: use raw content (includes glyxel visible output + footer)
+    if isinstance(raw_content, bytes):
+        print(raw_content.decode('utf-8'), end='')
+    else:
+        print(raw_content, end='')
     sys.stdout.flush()
 
 
@@ -195,7 +256,6 @@ def _display_animated(meow: MEOWContent, meld: bool):
     canvas_height = meow.canvas.size[1] if meow.canvas and meow.canvas.size else 24
     
     # Emit layer zero to scroll terminal and establish origin
-    # This matches static image behavior and prevents clipping at terminal bottom
     if meow.canvas and meow.canvas.size:
         height = meow.canvas.size[1]
         # Reserve vertical space (scroll terminal)
@@ -358,9 +418,17 @@ def show_info(filepath: Union[str, Path]) -> None:
         
         if layer.ctype:
             print(f"  Content Type: {layer.ctype}")
-        
+            
         if layer.cells:
-            print(f"  Cells: {len(layer.cells)} bytes")
+            print(f"  Cells: {len(layer.cells)} bytes (base64)")
+            # Try to show original size if PNG
+            if layer.ctype == 'png':
+                try:
+                    png_data = base64.b64decode(layer.cells)
+                    img = decode_png(png_data)
+                    print(f"  Original Size: {img.width}×{img.height} pixels")
+                except:
+                    pass
         
         if layer.frame is not None:
             print(f"  Frame: {layer.frame}")

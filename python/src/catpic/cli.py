@@ -10,6 +10,7 @@ import click
 from .core import BASIS, get_default_basis
 from .decoder import load_meow_file, display_meow, show_info as show_meow_info
 from .encoder import CatpicEncoder
+from .protocols import list_protocols
 
 
 def parse_basis(basis_str: str) -> BASIS:
@@ -39,6 +40,12 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--output", "-o", type=click.Path(path_type=Path), help="Save to .meow file")
 @click.option("--info", "-i", is_flag=True, help="Show file information")
 @click.option("--meld", is_flag=True, help="Force runtime melding (Phase 2 feature)")
+@click.option(
+    "--protocol", "-p",
+    type=click.Choice(['glyxel', 'glyxel_only'], case_sensitive=False),
+    default=None,
+    help="Display/encoding protocol (glyxel=dual content, glyxel_only=minimal)"
+)
 @click.version_option(version="0.7.0")
 def main(
     image_file: Path,
@@ -48,23 +55,33 @@ def main(
     output: Optional[Path],
     info: bool,
     meld: bool,
+    protocol: Optional[str],
 ) -> None:
     """
     catpic - Terminal image viewer using MEOW v0.7 format.
 
     Examples:
-      catpic photo.jpg                     # Encode and display
-      catpic photo.jpg -o photo.meow       # Save to MEOW file
-      catpic photo.meow                    # Display MEOW file
+      catpic photo.jpg                     # Encode and display (dual content)
+      catpic photo.jpg -o photo.meow       # Save with PNG + glyxel
+      catpic photo.meow                    # Display (uses protocol if available)
       catpic photo.meow --info             # Show metadata
+      catpic photo.jpg --protocol glyxel_only  # Minimal ANSI only
+      
+    Protocol Modes:
+      glyxel (default)    Dual content: PNG + glyxel (best quality)
+      glyxel_only         Minimal: glyxel ANSI only (smallest size)
       
     Environment:
       CATPIC_BASIS - Default BASIS (e.g., "2,4")
       
     Phase 1: Single-layer static images
     Phase 2: Multi-layer, animation, translucency
-    Phase 3: Protocol support (Sixel, Kitty, iTerm2)
+    Phase 2C: Protocol support (glyxel integrated, Sixel/Kitty/iTerm2 coming)
     """
+    # Normalize protocol name
+    if protocol:
+        protocol = protocol.lower()
+    
     # Parse BASIS
     if basis is None:
         basis_enum = get_default_basis()
@@ -84,9 +101,10 @@ def main(
         if info:
             show_meow_info(str(image_file))
         else:
-            # Load file and display (load_meow_file returns bytes)
+            # Load file and display
             content = load_meow_file(str(image_file))
-            display_meow(content, meld=meld)
+            # Use protocol for display if specified
+            display_meow(content, meld=meld, protocol=protocol)
         return
 
     # Handle regular images
@@ -104,17 +122,26 @@ def main(
             is_animated = getattr(img, "is_animated", False)
         
         if is_animated:
-            meow_content = encoder.encode_animation(image_file, width, height)
+            meow_content = encoder.encode_animation(
+                image_file, width, height, protocol=protocol
+            )
         else:
-            meow_content = encoder.encode_image(image_file, width, height)
+            meow_content = encoder.encode_image(
+                image_file, width, height, protocol=protocol
+            )
         
         # Output (encoder returns string)
         if output:
             output.write_text(meow_content, encoding='utf-8')
-            click.echo(f"Saved to {output}")
+            
+            # Show helpful info about what was encoded
+            if protocol == 'glyxel_only':
+                click.echo(f"Saved to {output} (glyxel-only, minimal size)")
+            else:
+                click.echo(f"Saved to {output} (dual content: PNG + glyxel)")
         else:
-            # Display encoded content (string)
-            display_meow(meow_content, meld=meld)
+            # Display encoded content
+            display_meow(meow_content, meld=meld, protocol=protocol)
     
     except Exception as e:
         click.echo(f"Error: {e}", err=True)

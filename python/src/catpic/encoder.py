@@ -1,10 +1,15 @@
-"""
-MEOW v0.6 Encoder - Core functionality
+# Destination: src/catpic/encoder.py
 
-Encodes images to MEOW format with proper aspect ratio compensation
+"""
+MEOW v0.7 Encoder - Core functionality with protocol support
+
+Encodes images to MEOW format with dual content:
+- Full-resolution PNG in cells field (protocol data)
+- Glyxel ANSI in visible output (cat compatibility)
 """
 
 import json
+import base64
 from pathlib import Path
 from shutil import get_terminal_size
 from typing import Optional, Union
@@ -16,14 +21,14 @@ from .core import (
     get_char_aspect, build_layer_zero, build_footer
 )
 from .primitives import image_to_cells, cells_to_ansi_lines
+from .protocols.core import encode_png
 
 
 class CatpicEncoder:
     """
-    Encode images to MEOW v0.6 format.
+    Encode images to MEOW v0.7 format with protocol support.
     
-    Phase 1: Single-layer static images with v0.6 metadata
-    Phase 2: Full animation support
+    Phase 2C: Dual content (PNG + glyxel) or glyxel-only mode
     """
     
     def __init__(self, basis: Optional[BASIS] = None):
@@ -45,27 +50,38 @@ class CatpicEncoder:
         image_path: Union[str, Path],
         width: Optional[int] = None,
         height: Optional[int] = None,
+        protocol: Optional[str] = None,
     ) -> str:
         """
-        Encode a static image to MEOW v0.6 format with layer zero.
+        Encode a static image to MEOW v0.7 format.
         
-        Layer zero reserves vertical space and establishes cursor origin,
-        ensuring images display correctly even when terminal cursor is
-        near bottom of screen.
+        Creates dual-content MEOW file:
+        - cells field: full-resolution PNG (for protocol display)
+        - visible output: glyxel ANSI (for cat compatibility)
+        
+        Or glyxel-only mode for minimal file size.
         
         Args:
             image_path: Path to image file
-            width: Output width in characters (default: terminal width or 80)
-            height: Output height in characters (default: auto from aspect ratio)
+            width: Output width in characters (default: 80)
+            height: Output height in characters (default: auto from aspect)
+            protocol: Protocol mode ('glyxel', 'glyxel_only', None=default to 'glyxel')
         
         Returns:
-            MEOW v0.6 formatted string with layer zero structure
+            MEOW v0.7 formatted string
         """
+        # Default to glyxel (dual content)
+        if protocol is None:
+            protocol = 'glyxel'
+        
         # Load image
         with Image.open(image_path) as img:
-            img = img.convert("RGB")
+            img_rgb = img.convert("RGB")
             
-            # Calculate dimensions
+            # Store original dimensions
+            orig_width, orig_height = img_rgb.size
+            
+            # Calculate display dimensions for glyxel
             if width is None:
                 width = 80  # Default to 80 columns
             
@@ -76,21 +92,24 @@ class CatpicEncoder:
             
             if height is None:
                 # Maintain aspect ratio with terminal character aspect compensation
-                # Terminal characters are ~2x taller than wide, so multiply by 0.5
-                image_aspect = img.height / img.width
+                image_aspect = img_rgb.height / img_rgb.width
                 char_aspect = get_char_aspect()
                 height = int(width * image_aspect / char_aspect)
             
-            # Convert to cells (primitives handles resizing internally)
-            cells = image_to_cells(img, width, height, basis=self.basis)
-            
-            # Generate ANSI output
+            # Generate glyxel visible output
+            cells = image_to_cells(img_rgb, width, height, basis=self.basis)
             ansi_lines = cells_to_ansi_lines(cells)
             ansi_output = '\n'.join(ansi_lines)
+            
+            # Encode full-resolution PNG for protocol data (unless glyxel_only)
+            png_data = None
+            if protocol != 'glyxel_only':
+                png_data = encode_png(img_rgb)
         
-        # Build MEOW v0.6 file with layer zero structure
+        # Build MEOW v0.7 file
         parts = []
         
+        # Canvas metadata
         canvas_metadata = {
             "meow": MEOW_VERSION,
             "size": [width, height],
@@ -98,9 +117,22 @@ class CatpicEncoder:
         }
         parts.append(build_layer_zero(canvas_metadata, height))
         
-        # Visual layer content
+        # Layer metadata with protocol data (if not glyxel_only)
+        if png_data:
+            layer_metadata = {
+                "ctype": "png",
+                "cells": base64.b64encode(png_data).decode('ascii'),
+                "meta": {
+                    "orig_size": [orig_width, orig_height],
+                },
+            }
+            layer_json = json.dumps(layer_metadata, separators=(',', ':'))
+            parts.append(f'\x1b]{MEOW_OSC_NUMBER};{layer_json}\x07')
+        
+        # Visual layer content (glyxel)
         parts.append(ansi_output)
         
+        # Footer
         parts.append(build_footer(height))
         
         return ''.join(parts)
@@ -111,26 +143,28 @@ class CatpicEncoder:
         width: Optional[int] = None,
         height: Optional[int] = None,
         delay: Optional[int] = None,
+        protocol: Optional[str] = None,
     ) -> str:
         """
-        Encode animated GIF to MEOW v0.6 format with layer zero.
+        Encode animated GIF to MEOW v0.7 format with layer zero.
         
-        Layer zero reserves vertical space for animation, ensuring frames
-        display correctly even when terminal cursor is near bottom.
+        Note: Animation currently uses glyxel-only encoding.
+        Protocol support for animations is future work.
         
         Args:
             image_path: Path to animated GIF
             width: Output width in characters (default: 80)
             height: Output height in characters (default: auto from aspect)
             delay: Override frame delay in milliseconds (default: from GIF)
+            protocol: Protocol mode (currently ignored for animations)
         
         Returns:
-            MEOW v0.6 formatted string with layer zero and frame metadata
+            MEOW v0.7 formatted string with frame metadata
         """
         with Image.open(image_path) as img:
             if not getattr(img, "is_animated", False):
                 # Not animated, encode as static
-                return self.encode_image(image_path, width, height)
+                return self.encode_image(image_path, width, height, protocol)
             
             # Get animation info
             frame_count = getattr(img, 'n_frames', 1)
@@ -150,7 +184,7 @@ class CatpicEncoder:
                 char_aspect = get_char_aspect()
                 height = int(width * image_aspect / char_aspect)
             
-            # Build MEOW v0.6 file with layer zero structure
+            # Build MEOW v0.7 file with layer zero structure
             parts = []
             
             canvas_metadata = {
@@ -188,40 +222,3 @@ class CatpicEncoder:
             parts.append(build_footer(height))
             
             return ''.join(parts)
-
-
-# Phase 2 TODO: Advanced encoder features
-"""
-## Phase 2+ Encoder Features (Deferred)
-
-### Multi-Layer Encoding
-- Layer detection from transparent PNGs
-- Separate foreground/background layers
-- Layer bounding boxes
-- Layer IDs
-
-### Translucency Support
-- Alpha channel encoding
-- Pre-melding for cat compatibility
-- Alpha coefficient in layer metadata
-- Visual centroid computation
-
-### Cells Field Generation
-- Dense ANSI string format
-- Skip cell encoding (\\x1b[0m )
-- Row-major cell order
-- Conditional compression (gzip+base64)
-- ctype field validation
-
-### Metadata Compression
-- Detect cells presence
-- Automatic gzip compression
-- Base64 encoding
-- Size threshold logic
-
-### Advanced Features
-- Sparse visible output optimization
-- Cursor positioning for efficiency
-- Multiple canvas concatenation
-- Layer reordering support
-"""
