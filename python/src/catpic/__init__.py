@@ -13,7 +13,7 @@ from PIL import Image
 
 # Import encoder and decoder classes
 from .encoder import CatpicEncoder
-from .decoder import load_meow, display_meow, show_info
+from .decoder import load_meow_file, display_meow, show_info
 
 # Import core types for tests
 from .core import BASIS

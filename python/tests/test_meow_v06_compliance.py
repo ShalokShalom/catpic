@@ -11,7 +11,7 @@ import gzip
 import base64
 from pathlib import Path
 
-from catpic.decoder import load_meow
+from catpic.decoder import load_meow_file, parse_meow
 from catpic.meow_parser import LayerBlock
 from catpic.core import MEOW_OSC_NUMBER, EXIT_ERROR_INVALID_METADATA
 
@@ -35,10 +35,11 @@ class TestSpecCompliance:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
             # Should parse without error
-            assert meow.canvas is None
-            assert len(meow.layers) == 1
+            assert content.canvas is None
+            assert len(content.layers) == 1
         finally:
             Path(filepath).unlink()
     
@@ -55,10 +56,11 @@ class TestSpecCompliance:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            assert meow.layers[0].id == "bottom"
-            assert meow.layers[1].id == "middle"
-            assert meow.layers[2].id == "top"
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
+            assert content.layers[0].id == "bottom"
+            assert content.layers[1].id == "middle"
+            assert content.layers[2].id == "top"
         finally:
             Path(filepath).unlink()
 
@@ -214,8 +216,9 @@ class TestCanvasSizeDetermination:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            assert meow.canvas.size == (100, 50)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
+            assert content.canvas.size == (100, 50)
         finally:
             Path(filepath).unlink()
     
@@ -229,8 +232,9 @@ class TestCanvasSizeDetermination:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            inferred_size = meow.infer_canvas_size()
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
+            inferred_size = content.infer_canvas_size()
             
             # Should be at least 50x30 to contain the layer
             assert inferred_size[0] >= 50
@@ -254,10 +258,11 @@ class TestGracefulDegradation:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
             
             # Should continue and parse valid layer
-            assert len(meow.layers) >= 1
+            assert len(content.layers) >= 1
             
             # Should log warning
             captured = capsys.readouterr()
@@ -275,10 +280,11 @@ class TestGracefulDegradation:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
             # Should fallback and parse as plain JSON
-            assert len(meow.layers) == 1
-            assert meow.layers[0].id == "test"
+            assert len(content.layers) == 1
+            assert content.layers[0].id == "test"
         finally:
             Path(filepath).unlink()
     
@@ -293,9 +299,10 @@ class TestGracefulDegradation:
         
         try:
             # Should not raise exception
-            meow = load_meow(filepath)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
             # At minimum, should parse visible ANSI output
-            assert meow is not None
+            assert content is not None
         finally:
             Path(filepath).unlink()
 
@@ -318,8 +325,9 @@ class TestAnimationSpec:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            frames = meow.group_by_frame()
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
+            frames = content.group_by_frame()
             
             # Frame 0: bg + sprite_f0 + ui
             assert len(frames[0]) == 3
@@ -346,9 +354,10 @@ class TestAnimationSpec:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            assert meow.canvas.loop == 0
-            assert meow.canvas.is_infinite_loop()
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
+            assert content.canvas.loop == 0
+            assert content.canvas.is_infinite_loop()
         finally:
             Path(filepath).unlink()
 
@@ -367,9 +376,10 @@ class TestConcatenationSpec:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
             # Should use last canvas block
-            assert meow.canvas.size == (100, 50)
+            assert content.canvas.size == (100, 50)
         finally:
             Path(filepath).unlink()
     
@@ -384,8 +394,9 @@ class TestConcatenationSpec:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
+            meow = load_meow_file(filepath)
+            content = parse_meow(meow)
             # Should use last canvas which has meld=true
-            assert meow.should_meld() is True
+            assert content.should_meld() is True
         finally:
             Path(filepath).unlink()

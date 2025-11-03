@@ -10,7 +10,7 @@ from catpic.meow_parser import (
     MEOWParser,
     CanvasBlock,
     LayerBlock,
-    MEOWFile,
+    MEOWContent,
 )
 from catpic.core import (
     MEOW_OSC_NUMBER,

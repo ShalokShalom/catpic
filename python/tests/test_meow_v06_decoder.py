@@ -7,7 +7,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from catpic.decoder import load_meow, display_meow, show_info
+from catpic.decoder import load_meow_file, parse_meow, display_meow, show_info
 from catpic.core import MEOW_OSC_NUMBER, EXIT_ERROR_FILE_NOT_FOUND
 
 
@@ -17,7 +17,7 @@ class TestLoadMeow:
     def test_load_file_not_found(self):
         """Non-existent file raises SystemExit with code 5"""
         with pytest.raises(SystemExit) as exc:
-            load_meow("/nonexistent/file.meow")
+            load_meow_file("/nonexistent/file.meow")
         
         assert exc.value.code == EXIT_ERROR_FILE_NOT_FOUND
     
@@ -28,9 +28,10 @@ class TestLoadMeow:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            assert meow.canvas is None
-            assert len(meow.layers) == 1
+            meow = load_meow_file(filepath)
+            content = parse_meow( meow )
+            assert content.canvas is None
+            assert len(content.layers) == 1
         finally:
             Path(filepath).unlink()
     
@@ -44,10 +45,11 @@ class TestLoadMeow:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            assert meow.canvas is not None
-            assert meow.canvas.version == "0.6"
-            assert meow.canvas.size == (80, 24)
+            meow = load_meow_file(filepath)
+            content = parse_meow( meow )
+            assert content.canvas is not None
+            assert content.canvas.version == "0.6"
+            assert content.canvas.size == (80, 24)
         finally:
             Path(filepath).unlink()
 
@@ -65,7 +67,8 @@ class TestDisplayStatic:
             filepath = f.name
         
         try:
-            display_meow(filepath)
+            meow = load_meow_file(filepath)
+            display_meow(meow)
             captured = capsys.readouterr()
             assert 'TEST_OUTPUT' in captured.out
         finally:
@@ -84,7 +87,8 @@ class TestDisplayStatic:
             filepath = f.name
         
         try:
-            display_meow(filepath)
+            meow = load_meow_file(filepath)
+            display_meow(meow)
             captured = capsys.readouterr()
             
             # Check both outputs present and in order
@@ -191,7 +195,7 @@ class TestAnimationDetection:
             filepath = f.name
         
         try:
-            display_meow(filepath)
+            display_meow(load_meow_file(filepath))
             captured = capsys.readouterr()
             
             # Should display once, not loop
@@ -209,8 +213,9 @@ class TestAnimationDetection:
             filepath = f.name
         
         try:
-            meow = load_meow(filepath)
-            animated = [l for l in meow.layers if l.frame is not None]
+            meow = load_meow_file(filepath)
+            content = parse_meow( meow )
+            animated = [l for l in content.layers if l.frame is not None]
             assert len(animated) > 0
         finally:
             Path(filepath).unlink()
@@ -246,13 +251,14 @@ class TestConcatenation:
                 combined_path = fc.name
             
             try:
-                meow = load_meow(combined_path)
+                meow = load_meow_file(combined_path)
+                content = parse_meow( meow )
                 
-                assert len(meow.layers) == 2
-                assert meow.layers[0].id == "from_file1"
-                assert meow.layers[1].id == "from_file2"
-                assert 'FILE1' in meow.layers[0].visible_output
-                assert 'FILE2' in meow.layers[1].visible_output
+                assert len(content.layers) == 2
+                assert content.layers[0].id == "from_file1"
+                assert content.layers[1].id == "from_file2"
+                assert 'FILE1' in content.layers[0].visible_output
+                assert 'FILE2' in content.layers[1].visible_output
             finally:
                 Path(combined_path).unlink()
         
