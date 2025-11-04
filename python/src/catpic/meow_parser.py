@@ -1,3 +1,5 @@
+# Destination: src/catpic/meow_parser.py
+
 """
 MEOW v0.7 parser - Core data structures and parsing logic
 """
@@ -73,8 +75,8 @@ class LayerBlock:
                 f"Exit code: {EXIT_ERROR_INVALID_METADATA}"
             )
         
-        # Case 3: Unknown ctype with cells
-        valid_ctypes = {"ansi-art", "none", None}
+        # Case 3: Unknown ctype with cells (v0.7 supports png)
+        valid_ctypes = {"ansi-art", "png", "none", None}
         if self.ctype not in valid_ctypes and self.cells is not None:
             raise ValueError(
                 f"Unknown ctype '{self.ctype}' with cells present. "
