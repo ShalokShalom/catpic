@@ -1,3 +1,5 @@
+# Destination: src/catpic/protocols/__init__.py
+
 """
 MEOW v0.7 Protocol System
 
@@ -6,9 +8,10 @@ with automatic capability detection and graceful fallback to glyxel.
 """
 
 from typing import Dict, Type
-from .glyxel import GlyxelGenerator
 
 from .base import ProtocolGenerator, ProtocolConfig
+from .glyxel import GlyxelGenerator
+from .kitty import KittyGenerator
 
 # Protocol registry (populated as protocols are imported)
 _GENERATORS: Dict[str, Type[ProtocolGenerator]] = {}
@@ -57,15 +60,16 @@ def list_protocols() -> list[str]:
     """
     return list(_GENERATORS.keys())
 
-# Auto-register glyxel protocol (universal fallback)
-register_protocol('glyxel', GlyxelGenerator)
 
-# Import and register glyxel protocol (always available)
-# Other protocols imported on-demand or at startup
+# Auto-register protocols
+register_protocol('glyxel', GlyxelGenerator)
+register_protocol('kitty', KittyGenerator)
+
 __all__ = [
     'ProtocolGenerator',
     'ProtocolConfig',
-    'GlyxelGenerator',  # ADD THIS LINE
+    'GlyxelGenerator',
+    'KittyGenerator',
     'register_protocol',
     'get_generator',
     'list_protocols',

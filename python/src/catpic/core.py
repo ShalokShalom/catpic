@@ -77,36 +77,104 @@ def get_default_basis() -> BASIS:
     return BASIS.BASIS_2_2
 
 
-def get_char_aspect() -> float:
+#def get_char_aspect() -> float:
+#    """
+#    get terminal character aspect ratio from environment or default.
+#    
+#    terminal characters are typically taller than wide. common values:
+#    - 2.0: most terminals (default)
+#    - 1.8: some wider fonts
+#    - 2.2: some narrower fonts
+#    
+#    environment:
+#        catpic_char_aspect: float value (e.g., "2.0", "1.8")
+#    
+#    returns:
+#        character aspect ratio (height / width)
+#    """
+#    aspect_env = os.getenv('catpic_char_aspect')
+#    if not aspect_env:
+#        return default_char_aspect
+#    
+#    try:
+#        aspect = float(aspect_env)
+#        # sanity check: reasonable range
+#        if 1.0 <= aspect <= 3.0:
+#            return aspect
+#    except (valueerror, typeerror):
+#        pass
+#    
+#    return default_char_aspect
+
+
+# Destination: src/catpic/core.py (UPDATE - add to existing file)
+
+"""
+Basis-aware aspect ratio correction system.
+
+Each basis has different pixel arrangements that interact with terminal
+font metrics differently. This matrix provides relative corrections.
+
+The base aspect ratio (2.0) assumes a typical terminal where characters
+are roughly 2x taller than wide. The corrections adjust for how different
+basis configurations compress/stretch visuals.
+"""
+
+# Internal basis correction matrix
+# Format: {(basis_x, basis_y): correction_multiplier}
+# These are relative adjustments to the base aspect ratio (2.0)
+# Values determined through visual tuning in typical terminal
+BASIS_ASPECT_CORRECTIONS = {
+    (1, 2): 2.0,    # 1x2: 2 vertical pixels - needs 2x correction (4.0 effective)
+    (2, 2): 0.9,    # 2x2: 4 pixels in 2x2 grid - slight correction (1.8 effective)
+    (2, 3): 1.5,    # 2x3: 6 pixels - moderate correction (3.0 effective)
+    (2, 4): 2.0,    # 2x4: 8 pixels - strong correction (4.0 effective)
+}
+
+# Base aspect ratio for typical terminals (chars are ~2x taller than wide)
+BASE_CHAR_ASPECT = 2.0
+
+
+def get_char_aspect(basis: Optional[BASIS] = None) -> float:
     """
-    Get terminal character aspect ratio from environment or default.
+    Get character aspect ratio with basis-specific correction.
     
-    Terminal characters are typically taller than wide. Common values:
-    - 2.0: Most terminals (default)
-    - 1.8: Some wider fonts
-    - 2.2: Some narrower fonts
+    Resolution order:
+    1. Basis-specific env var (CATPIC_CHAR_ASPECT_2x4)
+    2. Global env var (CATPIC_CHAR_ASPECT)
+    3. Internal correction matrix
+    4. Hardcoded default (2.0)
     
-    Environment:
-        CATPIC_CHAR_ASPECT: Float value (e.g., "2.0", "1.8")
+    Args:
+        basis: BASIS enum value (if None, returns base aspect only)
     
     Returns:
-        Character aspect ratio (height / width)
+        Corrected character aspect ratio for this basis
     """
-    aspect_env = os.getenv('CATPIC_CHAR_ASPECT')
-    if not aspect_env:
-        return DEFAULT_CHAR_ASPECT
+    import os
     
-    try:
-        aspect = float(aspect_env)
-        # Sanity check: reasonable range
-        if 1.0 <= aspect <= 3.0:
-            return aspect
-    except (ValueError, TypeError):
-        pass
+    # Start with base aspect
+    base_aspect = float(os.getenv('CATPIC_CHAR_ASPECT', BASE_CHAR_ASPECT))
     
-    return DEFAULT_CHAR_ASPECT
+    # If no basis specified, return base only
+    if basis is None:
+        return base_aspect
+    
+    # Check for basis-specific override
+    basis_x, basis_y = basis.value
+    basis_key = f"CATPIC_CHAR_ASPECT_{basis_x}x{basis_y}"
+    basis_override = os.getenv(basis_key)
+    
+    if basis_override:
+        return float(basis_override)
+    
+    # Apply internal correction matrix
+    correction = BASIS_ASPECT_CORRECTIONS.get((basis_x, basis_y), 1.0)
+    return base_aspect * correction
 
 
+# Update existing get_char_aspect() function with this new implementation
+# Remove the old simple version that just reads CATPIC_CHAR_ASPECT
 class CatpicCore:
     """Core catpic constants and Unicode character sets for mosaic encoding."""
     

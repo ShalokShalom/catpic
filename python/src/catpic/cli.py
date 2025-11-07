@@ -42,9 +42,9 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--meld", is_flag=True, help="Force runtime melding (Phase 2 feature)")
 @click.option(
     "--protocol", "-p",
-    type=click.Choice(['glyxel', 'glyxel_only'], case_sensitive=False),
+    type=click.Choice(['glyxel', 'glyxel_only', 'kitty'], case_sensitive=False),
     default=None,
-    help="Display/encoding protocol (glyxel=dual content, glyxel_only=minimal)"
+    help="Display/encoding protocol (glyxel=dual content, glyxel_only=minimal, kitty=KGP)"
 )
 @click.version_option(version="0.7.0")
 def main(

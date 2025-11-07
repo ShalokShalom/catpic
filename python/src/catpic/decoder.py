@@ -192,26 +192,28 @@ def _display_static(
                     # Get terminal dimensions
                     term_width, term_height = get_terminal_size()
                     
-                    # Calculate display size (fit to terminal)
-                    # FUTURE: Support --width/--height overrides
+                    # Calculate display size using intelligent sizing
+                    # Same logic as encoder: min(native, terminal - margin)
+                    from .encoder import calculate_display_dimensions
+                    from .core import get_default_basis
+                    
+                    basis = get_default_basis()
+                    max_cols = term_width - 2  # Leave margin
+                    max_rows = term_height - 2  # Leave room for prompt
+                    
+                    display_width, display_height = calculate_display_dimensions(
+                        img, basis, max_cols=max_cols, max_rows=max_rows
+                    )
+                    
+                    # Convert to pixels for protocol (protocols work in pixels)
+                    basis_x, basis_y = basis.value
+                    pixel_width = display_width * basis_x
+                    pixel_height = display_height * basis_y
+                    
                     from .protocols import ProtocolConfig
-                    from .core import get_char_aspect
-                    
-                    # Calculate dimensions that fit terminal
-                    img_aspect = img.height / img.width
-                    char_aspect = get_char_aspect()
-                    
-                    display_width = min(term_width - 1, 120)  # Leave margin
-                    display_height = int(display_width * img_aspect / char_aspect)
-                    
-                    # Limit to terminal height (leave room for prompt)
-                    if display_height > term_height - 2:
-                        display_height = term_height - 2
-                        display_width = int(display_height * char_aspect / img_aspect)
-                    
                     config = ProtocolConfig(
-                        max_width=display_width,
-                        max_height=display_height,
+                        max_width=pixel_width,
+                        max_height=pixel_height,
                     )
                     
                     # Generate protocol output
@@ -219,7 +221,7 @@ def _display_static(
                     
                     # Re-encode PNG for protocol (with resizing)
                     from .protocols.core import encode_png, resize_if_needed
-                    resized_img = resize_if_needed(img, display_width, display_height, preserve_aspect=True)
+                    resized_img = resize_if_needed(img, pixel_width, pixel_height, preserve_aspect=True)
                     resized_png = encode_png(resized_img)
                     
                     output = generator.generate(resized_png, config)
@@ -244,7 +246,12 @@ def _display_static(
 
 
 def _display_animated(meow: MEOWContent, meld: bool):
-    """Display animated MEOW content."""
+    """
+    Display animated MEOW content with full frame buffering.
+    
+    Each frame is completely rendered to a buffer before any terminal I/O,
+    preventing visual tearing and interleaved output artifacts.
+    """
     frames = meow.group_by_frame()
     loop_count = meow.canvas.loop if meow.canvas else 1
     is_infinite = meow.canvas.is_infinite_loop() if meow.canvas else False
@@ -278,8 +285,12 @@ def _display_animated(meow: MEOWContent, meld: bool):
             for frame_num in sorted(frames.keys()):
                 frame_layers = frames[frame_num]
                 
-                # Restore to saved cursor position
-                output_buffer = ['\x1b[u']
+                # === FULL FRAME BUFFERING ===
+                # Build entire frame output in memory before any I/O
+                frame_buffer = []
+                
+                # Start with cursor restore
+                frame_buffer.append('\x1b[u')
                 
                 # Collect all layer output for this frame
                 frame_output = []
@@ -290,24 +301,26 @@ def _display_animated(meow: MEOWContent, meld: bool):
                 combined = ''.join(frame_output)
                 lines = combined.split('\n')
                 
-                # Output each line with cursor positioning
+                # Build output for each line
                 for idx, line in enumerate(lines):
                     if idx >= display_height:
                         break
                     
                     # Truncate line to terminal width
                     truncated_line = truncate_ansi_line(line, term_width)
-                    output_buffer.append(truncated_line)
+                    frame_buffer.append(truncated_line)
                     
                     # Clear to end of line
-                    output_buffer.append('\x1b[K')
+                    frame_buffer.append('\x1b[K')
                     
                     # Move to next line (down 1, column 0) - but not after last line
                     if idx < display_height - 1:
-                        output_buffer.append('\x1b[B\x1b[G')
+                        frame_buffer.append('\x1b[B\x1b[G')
                 
-                # Output entire frame at once
-                print(''.join(output_buffer), end='', flush=True)
+                # === ATOMIC FRAME OUTPUT ===
+                # Write entire frame in one I/O operation
+                sys.stdout.write(''.join(frame_buffer))
+                sys.stdout.flush()
                 
                 # Get delay from first animated layer in frame
                 delay_ms = DEFAULT_FRAME_DELAY
