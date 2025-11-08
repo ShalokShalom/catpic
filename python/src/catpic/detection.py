@@ -110,7 +110,7 @@ class CapabilityDetector:
         Detection methods:
         1. KITTY_WINDOW_ID environment variable (most reliable)
         2. $TERM contains 'kitty'
-        3. Terminal query (future: query for graphics support)
+        3. Check through tmux if present
         
         Returns:
             True if Kitty graphics are supported
@@ -124,9 +124,18 @@ class CapabilityDetector:
         if 'kitty' in term.lower():
             return True
         
-        # Method 3: Terminal query (future implementation)
-        # Could query using: \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\
-        # But requires terminal interaction and timing
+        # Method 3: Check through tmux
+        # Tmux can passthrough graphics if the underlying terminal supports it
+        if self._is_inside_tmux():
+            # Check if underlying terminal is Kitty
+            # KITTY_WINDOW_ID survives tmux in many cases
+            if os.getenv('KITTY_WINDOW_ID'):
+                return True
+            
+            # Check TERM_PROGRAM from outside tmux (some configs preserve this)
+            term_program = os.getenv('TERM_PROGRAM', '')
+            if 'kitty' in term_program.lower():
+                return True
         
         return False
     
@@ -136,7 +145,8 @@ class CapabilityDetector:
         
         Detection methods:
         1. $TERM heuristics (xterm-*, mlterm, foot, etc.)
-        2. Terminal query DA1 response (future)
+        2. Check through tmux if present
+        3. Terminal query DA1 response (future)
         
         Returns:
             True if Sixel is supported
@@ -152,15 +162,39 @@ class CapabilityDetector:
             'mintty',
         ]
         
+        # Note: wezterm in term list but checking separately
+        # because $TERM is usually just "wezterm" not "xterm-wezterm"
         for sixel_term in sixel_terms:
             if sixel_term in term.lower():
                 return True
         
-        # TODO: Terminal query for Sixel support
-        # Could use DA1 (Device Attributes): \x1b[c
-        # Response indicates Sixel support with parameter 4
+        # Check for wezterm specifically (exact match)
+        if term.lower() == 'wezterm':
+            return True
+        
+        # Check through tmux
+        if self._is_inside_tmux():
+            # Some terminals preserve enough info to detect
+            # Check VTE_VERSION for VTE-based terminals (gnome-terminal, xfce4-terminal)
+            if os.getenv('VTE_VERSION'):
+                return True
+            
+            # Check for other indicators
+            term_program = os.getenv('TERM_PROGRAM', '')
+            if any(t in term_program.lower() for t in sixel_terms):
+                return True
+            
+            # Check if wezterm is the underlying terminal
+            if 'wezterm' in term_program.lower():
+                return True
         
         return False
+    
+    def _is_inside_tmux(self) -> bool:
+        """Check if running inside tmux."""
+        # Check both TERM_PROGRAM and TMUX variable
+        # TMUX is set by tmux itself, TERM_PROGRAM might be set by some configs
+        return os.getenv('TMUX') is not None or os.getenv('TERM_PROGRAM') == 'tmux'
     
     def _detect_iterm2(self) -> bool:
         """

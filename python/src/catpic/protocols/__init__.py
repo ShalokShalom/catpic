@@ -1,75 +1,50 @@
-# Destination: src/catpic/protocols/__init__.py
+# Destination: src/catpic/protocols/__init__.py (UPDATE)
 
 """
-MEOW v0.7 Protocol System
+Protocol system for catpic.
 
-Provides abstraction layer for multiple terminal graphics protocols
-with automatic capability detection and graceful fallback to glyxel.
+Auto-registers all protocol generators.
 """
-
-from typing import Dict, Type
 
 from .base import ProtocolGenerator, ProtocolConfig
 from .glyxel import GlyxelGenerator
 from .kitty import KittyGenerator
-
-# Protocol registry (populated as protocols are imported)
-_GENERATORS: Dict[str, Type[ProtocolGenerator]] = {}
+from .sixel import SixelGenerator
 
 
-def register_protocol(name: str, generator_class: Type[ProtocolGenerator]) -> None:
-    """
-    Register a protocol generator.
-    
-    Args:
-        name: Protocol identifier (e.g., 'kitty', 'sixel')
-        generator_class: ProtocolGenerator subclass
-    """
-    _GENERATORS[name] = generator_class
+# Global registry
+_PROTOCOLS = {}
+
+
+def register_protocol(name: str, generator_class: type[ProtocolGenerator]):
+    """Register a protocol generator."""
+    _PROTOCOLS[name] = generator_class
 
 
 def get_generator(protocol: str) -> ProtocolGenerator:
-    """
-    Get protocol generator by name.
-    
-    Args:
-        protocol: Protocol name ('kitty', 'sixel', 'iterm2', 'glyxel')
-    
-    Returns:
-        ProtocolGenerator instance
-    
-    Raises:
-        ValueError: If protocol not supported
-    """
-    if protocol not in _GENERATORS:
-        available = ', '.join(_GENERATORS.keys())
+    """Get a protocol generator instance."""
+    if protocol not in _PROTOCOLS:
         raise ValueError(
             f"Unsupported protocol: {protocol}. "
-            f"Available protocols: {available}"
+            f"Available protocols: {', '.join(_PROTOCOLS.keys())}"
         )
-    
-    return _GENERATORS[protocol]()
+    return _PROTOCOLS[protocol]()
 
 
 def list_protocols() -> list[str]:
-    """
-    List all registered protocol names.
-    
-    Returns:
-        List of protocol identifiers
-    """
-    return list(_GENERATORS.keys())
+    """List all registered protocols."""
+    return list(_PROTOCOLS.keys())
 
 
 # Auto-register protocols
 register_protocol('glyxel', GlyxelGenerator)
 register_protocol('kitty', KittyGenerator)
+register_protocol('sixel', SixelGenerator)
+
 
 __all__ = [
     'ProtocolGenerator',
     'ProtocolConfig',
-    'GlyxelGenerator',
-    'KittyGenerator',
     'register_protocol',
     'get_generator',
     'list_protocols',

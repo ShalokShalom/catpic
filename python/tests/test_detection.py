@@ -33,6 +33,17 @@ class TestKittyDetection:
         with patch.dict(os.environ, {'TERM': 'xterm-kitty'}, clear=True):
             assert detector._detect_kitty() is True
     
+    def test_detect_through_tmux(self):
+        """Kitty detected through tmux with KITTY_WINDOW_ID."""
+        detector = CapabilityDetector()
+        
+        with patch.dict(os.environ, {
+            'TERM': 'tmux-256color',
+            'TERM_PROGRAM': 'tmux',
+            'KITTY_WINDOW_ID': '1',
+        }, clear=True):
+            assert detector._detect_kitty() is True
+    
     def test_not_detected(self):
         """Kitty not detected without indicators."""
         detector = CapabilityDetector()
@@ -56,6 +67,24 @@ class TestSixelDetection:
         detector = CapabilityDetector()
         
         with patch.dict(os.environ, {'TERM': term}, clear=True):
+            assert detector._detect_sixel() is True
+    
+    def test_detect_wezterm(self):
+        """Wezterm detected via exact TERM match."""
+        detector = CapabilityDetector()
+        
+        with patch.dict(os.environ, {'TERM': 'wezterm'}, clear=True):
+            assert detector._detect_sixel() is True
+    
+    def test_detect_through_tmux_vte(self):
+        """Sixel detected through tmux with VTE terminal."""
+        detector = CapabilityDetector()
+        
+        with patch.dict(os.environ, {
+            'TERM': 'tmux-256color',
+            'TMUX': '/tmp/tmux-1000/default,12345,0',  # Typical TMUX value
+            'VTE_VERSION': '7400',
+        }, clear=True):
             assert detector._detect_sixel() is True
     
     def test_not_detected(self):
