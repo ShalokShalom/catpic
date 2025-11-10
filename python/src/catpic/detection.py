@@ -289,9 +289,27 @@ def detect_best_protocol() -> str:
     """
     Convenience function to detect the best available protocol.
     
+    Checks CATPIC_CONFIG for user override, then auto-detects.
+    
     Returns:
         Protocol name suitable for use with get_generator()
     """
+    # Check for user override via config
+    try:
+        from .config import load_config
+        config = load_config()
+        protocol = config.get('protocol', 'auto')
+        
+        if protocol and protocol != 'auto':
+            # Validate it's supported
+            detector = get_detector()
+            if detector.supports_protocol(protocol):
+                return protocol
+            # If invalid, fall through to auto-detection
+    except Exception:
+        # Config loading failed, fall through to auto-detection
+        pass
+    
     return get_detector().select_best_protocol()
 
 

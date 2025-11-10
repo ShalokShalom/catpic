@@ -125,48 +125,49 @@ class SixelGenerator(ProtocolGenerator):
         pixels = img.load()
         
         # Start Sixel sequence
-        # DCS (Device Control String) + sixel introducer
         parts = [b'\x1bPq']
         
         # Define color palette
-        # Format: #<color_number>;<color_space>;<r>;<g>;<b>
-        # color_space: 2 = RGB (0-100 range)
-        palette_size = len(palette) // 3  # Palette is [r,g,b,r,g,b,...]
+        palette_size = len(palette) // 3
         for i in range(palette_size):
             r = palette[i * 3] * 100 // 255
             g = palette[i * 3 + 1] * 100 // 255
             b = palette[i * 3 + 2] * 100 // 255
-            parts.append(f'#{i};2;{r};{g};{b}'.encode('ascii'))
+            color_def = f'#{i};2;{r};{g};{b}'.encode('ascii')
+            parts.append(color_def)
         
-        # Encode image data
-        # Sixel encodes 6 vertical pixels at a time
+        # Encode image data (6 vertical pixels at a time)
         for y in range(0, height, 6):
-            # Process 6 rows at a time
-            for color_idx in range(256):
+            band_has_data = False
+            
+            for color_idx in range(palette_size):
                 color_data = []
                 
                 for x in range(width):
-                    # Collect 6 vertical pixels for this color
                     sixel_char = 0
                     for bit in range(6):
                         py = y + bit
-                        if py < height and pixels[x, py] == color_idx:
-                            sixel_char |= (1 << bit)
+                        if py < height:
+                            try:
+                                if pixels[x, py] == color_idx:
+                                    sixel_char |= (1 << bit)
+                            except (IndexError, KeyError):
+                                pass
                     
                     if sixel_char > 0:
-                        # Add to output (offset by 63 to make printable ASCII)
                         color_data.append(chr(63 + sixel_char))
                 
-                # If this color appears in this band, output it
                 if color_data:
+                    if band_has_data:
+                        parts.append(b'$')
                     parts.append(f'#{color_idx}'.encode('ascii'))
                     parts.append(''.join(color_data).encode('ascii'))
-                    parts.append(b'$')  # Carriage return
+                    band_has_data = True
             
-            # Next line
-            parts.append(b'-')
+            if band_has_data:
+                parts.append(b'-')
         
-        # End Sixel sequence (ST - String Terminator)
+        # End Sixel sequence
         parts.append(b'\x1b\\')
         
         return b''.join(parts)

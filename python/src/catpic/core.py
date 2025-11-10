@@ -77,38 +77,6 @@ def get_default_basis() -> BASIS:
     return BASIS.BASIS_2_2
 
 
-#def get_char_aspect() -> float:
-#    """
-#    get terminal character aspect ratio from environment or default.
-#    
-#    terminal characters are typically taller than wide. common values:
-#    - 2.0: most terminals (default)
-#    - 1.8: some wider fonts
-#    - 2.2: some narrower fonts
-#    
-#    environment:
-#        catpic_char_aspect: float value (e.g., "2.0", "1.8")
-#    
-#    returns:
-#        character aspect ratio (height / width)
-#    """
-#    aspect_env = os.getenv('catpic_char_aspect')
-#    if not aspect_env:
-#        return default_char_aspect
-#    
-#    try:
-#        aspect = float(aspect_env)
-#        # sanity check: reasonable range
-#        if 1.0 <= aspect <= 3.0:
-#            return aspect
-#    except (valueerror, typeerror):
-#        pass
-#    
-#    return default_char_aspect
-
-
-# Destination: src/catpic/core.py (UPDATE - add to existing file)
-
 """
 Basis-aware aspect ratio correction system.
 
@@ -139,11 +107,7 @@ def get_char_aspect(basis: Optional[BASIS] = None) -> float:
     """
     Get character aspect ratio with basis-specific correction.
     
-    Resolution order:
-    1. Basis-specific env var (CATPIC_CHAR_ASPECT_2x4)
-    2. Global env var (CATPIC_CHAR_ASPECT)
-    3. Internal correction matrix
-    4. Hardcoded default (2.0)
+    Uses CATPIC_CONFIG for aspect ratios.
     
     Args:
         basis: BASIS enum value (if None, returns base aspect only)
@@ -151,26 +115,36 @@ def get_char_aspect(basis: Optional[BASIS] = None) -> float:
     Returns:
         Corrected character aspect ratio for this basis
     """
-    import os
-    
-    # Start with base aspect
-    base_aspect = float(os.getenv('CATPIC_CHAR_ASPECT', BASE_CHAR_ASPECT))
-    
-    # If no basis specified, return base only
-    if basis is None:
-        return base_aspect
-    
-    # Check for basis-specific override
-    basis_x, basis_y = basis.value
-    basis_key = f"CATPIC_CHAR_ASPECT_{basis_x}x{basis_y}"
-    basis_override = os.getenv(basis_key)
-    
-    if basis_override:
-        return float(basis_override)
-    
-    # Apply internal correction matrix
-    correction = BASIS_ASPECT_CORRECTIONS.get((basis_x, basis_y), 1.0)
-    return base_aspect * correction
+    # Try to load from config
+    try:
+        from .config import load_config
+        config = load_config()
+        
+        if basis is None:
+            return config.get('aspect base', BASE_CHAR_ASPECT)
+        
+        # Get basis-specific aspect
+        basis_x, basis_y = basis.value
+        basis_key = f"aspect {basis_x}x{basis_y}"
+        
+        if basis_key in config:
+            return config[basis_key]
+        
+        # Fall back to base aspect with internal correction
+        base_aspect = config.get('aspect base', BASE_CHAR_ASPECT)
+        correction = BASIS_ASPECT_CORRECTIONS.get((basis_x, basis_y), 1.0)
+        return base_aspect * correction
+        
+    except Exception:
+        # Config system not available, use legacy approach
+        base_aspect = float(os.getenv('CATPIC_CHAR_ASPECT', BASE_CHAR_ASPECT))
+        
+        if basis is None:
+            return base_aspect
+        
+        basis_x, basis_y = basis.value
+        correction = BASIS_ASPECT_CORRECTIONS.get((basis_x, basis_y), 1.0)
+        return base_aspect * correction
 
 
 # Update existing get_char_aspect() function with this new implementation

@@ -3,6 +3,7 @@
 """Command-line interface for catpic MEOW v0.7."""
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -41,13 +42,16 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--height", "-h", type=int, help="Output height in characters")
 @click.option("--output", "-o", type=click.Path(path_type=Path), help="Save to .meow file")
 @click.option("--info", "-i", is_flag=True, help="Show file information")
-@click.option("--meld", is_flag=True, help="Force runtime melding (Phase 2 feature)")
+@click.option("--meld", is_flag=True, help="Force runtime melding")
 @click.option(
     "--protocol", "-p",
     default=None,
-    help="Display/encoding protocol (auto/glyxel/glyxel_only/kitty). Default: auto"
+    help="Display/encoding protocol (auto/glyxel/glyxel_only/kitty/sixel)"
 )
-@click.option("--detect", is_flag=True, help="Show terminal capabilities")
+@click.option("--detect", is_flag=True, help="Detect terminal and output optimal config")
+@click.option("--config", "show_config", is_flag=True, help="Show current configuration")
+@click.option("--yes", "-y", is_flag=True, help="Non-interactive mode (accept all prompts)")
+@click.option("--debug", is_flag=True, help="Show debug messages")
 @click.version_option(version="0.7.0")
 def main(
     image_file: Optional[Path],
@@ -59,37 +63,116 @@ def main(
     meld: bool,
     protocol: Optional[str],
     detect: bool,
+    show_config: bool,
+    yes: bool,
+    debug: bool,
 ) -> None:
-    """
-    catpic - Terminal image viewer using MEOW v0.7 format.
+    """catpic - Terminal image viewer using MEOW v0.7 format.
 
+    \b
     Examples:
-      catpic photo.jpg                     # Encode and display (auto-detect protocol)
-      catpic photo.jpg -o photo.meow       # Save with PNG + glyxel
-      catpic photo.meow                    # Display (auto-detect best protocol)
-      catpic photo.meow --info             # Show metadata
-      catpic photo.jpg --protocol glyxel_only  # Minimal ANSI only
-      catpic photo.jpg --protocol kitty    # Force Kitty protocol
-      catpic --detect                      # Show terminal capabilities
+      catpic photo.jpg                         # Auto-detect and display
+      catpic photo.jpg -o photo.meow           # Save dual-content MEOW file
+      catpic photo.meow                        # Display MEOW file
+      catpic photo.meow --info                 # Show metadata
       
-    Protocol Modes:
-      auto (default)      Auto-detect best available protocol
-      glyxel              Dual content: PNG + glyxel (best quality)
-      glyxel_only         Minimal: glyxel ANSI only (smallest size)
-      kitty               Kitty Graphics Protocol (if supported)
+      catpic --detect                          # Detect terminal, output config
+      eval $(catpic --detect)                  # Apply detected config
       
-    Environment:
-      CATPIC_BASIS              Default BASIS (e.g., "2,4")
-      CATPIC_CHAR_ASPECT        Base character aspect ratio (default: 2.0)
-      CATPIC_CHAR_ASPECT_2x4    Basis-specific aspect override
+      catpic --config                          # Show current config
+      eval $(catpic --detect)                  # Apply detected config
+      catpic photo.jpg --protocol sixel        # One-off protocol override
+      catpic photo.jpg --basis 2,4             # One-off basis override
       
-    Phase 1: Single-layer static images
-    Phase 2: Multi-layer, animation, translucency
-    Phase 2C: Protocol support (glyxel, kitty integrated)
+      catpic photo.jpg --debug                 # Show detection messages
+
+    \b
+    Configuration:
+      catpic uses CATPIC_CONFIG environment variable (JSON format).
+      
+      --config shows current configuration
+      --detect generates optimal configuration for this terminal
+      --protocol and --basis provide session overrides (don't modify ENV)
+      
+      Aspect ratios are set via CATPIC_CONFIG only (see --detect output)
+
+    \b
+    Environment Variables:
+      CATPIC_CONFIG             Configuration (JSON format)
     """
+    try:
+        _main_impl(
+            image_file, basis, width, height, output, info, meld,
+            protocol, detect, show_config, yes, debug
+        )
+    except Exception as e:
+        # Never dump tracebacks when used with eval
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+def _main_impl(
+    image_file: Optional[Path],
+    basis: Optional[str],
+    width: Optional[int],
+    height: Optional[int],
+    output: Optional[Path],
+    info: bool,
+    meld: bool,
+    protocol: Optional[str],
+    detect: bool,
+    show_config: bool,
+    yes: bool,
+    debug: bool,
+) -> None:
+    """Internal main implementation (wrapped by error handler)."""
+    
+    # Handle --config flag
+    if show_config:
+        from .config import load_config, export_config
+        config = load_config()
+        click.echo(export_config(config))
+        return
+    
     # Handle --detect flag
     if detect:
-        show_capabilities()
+        from .config import export_config
+        
+        # Detect all capabilities
+        detector = get_detector()
+        capabilities = detector.detect_capabilities(use_cache=False)
+        best_protocol = capabilities[0].value
+        
+        # Build helpful comments
+        click.echo("# Terminal capabilities detected:")
+        for cap in capabilities:
+            if cap.value == best_protocol:
+                click.echo(f"#   {cap.value:8} - recommended (best quality)")
+            elif cap.value == 'glyxel':
+                click.echo(f"#   {cap.value:8} - available (universal fallback)")
+            else:
+                click.echo(f"#   {cap.value:8} - available")
+        
+        click.echo("#")
+        click.echo("# To persist these settings:")
+        click.echo("#   eval $(catpic --detect)")
+        click.echo("#   echo 'eval $(catpic --detect)' >> ~/.bashrc")
+        click.echo("#")
+        click.echo("# To customize aspect ratios, edit CATPIC_CONFIG directly:")
+        click.echo('#   export CATPIC_CONFIG=\'{"protocol":"kitty",...,"aspect 2x4":1.8}\'')
+        
+        # Build config with detected values
+        config = {
+            "protocol": best_protocol,
+            "basis": "2,2",
+            "aspect base": 2.0,
+            "aspect 1x2": 2.0,
+            "aspect 2x2": 0.9,
+            "aspect 2x3": 1.5,
+            "aspect 2x4": 2.0,
+        }
+        
+        click.echo(export_config(config))
         return
     
     # If no image file, show help
@@ -110,13 +193,13 @@ def main(
             basis_enum = parse_basis(basis)
         except click.BadParameter as e:
             click.echo(f"Error: {e}", err=True)
-            raise SystemExit(1)
+            sys.exit(1)
 
     # Handle MEOW files
     if image_file.suffix.lower() == ".meow":
         if output:
             click.echo("Error: Cannot re-encode .meow files", err=True)
-            raise SystemExit(1)
+            sys.exit(1)
         
         if info:
             show_meow_info(str(image_file))
@@ -125,15 +208,16 @@ def main(
             display_protocol = protocol
             if display_protocol is None or display_protocol == 'auto':
                 display_protocol = detect_best_protocol()
-                if display_protocol != 'glyxel':
+                if debug and display_protocol != 'glyxel':
                     click.echo(f"Auto-detected: {display_protocol}", err=True)
             else:
                 # Validate protocol is supported
                 if not supports_protocol(display_protocol):
-                    click.echo(
-                        f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
-                        err=True
-                    )
+                    if debug:
+                        click.echo(
+                            f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
+                            err=True
+                        )
             
             # Load file and display
             content = load_meow_file(str(image_file))
@@ -146,123 +230,90 @@ def main(
         return
 
     # Encode image
-    try:
-        encoder = CatpicEncoder(basis=basis_enum)
+    encoder = CatpicEncoder(basis=basis_enum)
+    
+    # Check if animated
+    from PIL import Image
+    with Image.open(image_file) as img:
+        is_animated = getattr(img, "is_animated", False)
+    
+    # Determine encoding protocol (glyxel vs glyxel_only)
+    encode_protocol = protocol
+    if encode_protocol is None or encode_protocol == 'auto':
+        # Default to dual-content encoding
+        encode_protocol = 'glyxel'
+    elif encode_protocol not in ['glyxel', 'glyxel_only']:
+        # For display protocols, encode as dual-content
+        encode_protocol = 'glyxel'
+    
+    if is_animated:
+        meow_content = encoder.encode_animation(
+            image_file, width, height, protocol=encode_protocol
+        )
+    else:
+        meow_content = encoder.encode_image(
+            image_file, width, height, protocol=encode_protocol
+        )
+    
+    # Output
+    if output:
+        output.write_text(meow_content, encoding='utf-8')
         
-        # Check if animated
-        from PIL import Image
-        with Image.open(image_file) as img:
-            is_animated = getattr(img, "is_animated", False)
-        
-        # Determine encoding protocol (glyxel vs glyxel_only)
-        encode_protocol = protocol
-        if encode_protocol is None or encode_protocol == 'auto':
-            # Default to dual-content encoding
-            encode_protocol = 'glyxel'
-        elif encode_protocol not in ['glyxel', 'glyxel_only']:
-            # For display protocols, encode as dual-content
-            encode_protocol = 'glyxel'
-        
-        if is_animated:
-            meow_content = encoder.encode_animation(
-                image_file, width, height, protocol=encode_protocol
-            )
+        # Show helpful info about what was encoded
+        if encode_protocol == 'glyxel_only':
+            click.echo(f"Saved to {output} (glyxel-only, minimal size)")
         else:
-            meow_content = encoder.encode_image(
-                image_file, width, height, protocol=encode_protocol
-            )
-        
-        # Output
-        if output:
-            output.write_text(meow_content, encoding='utf-8')
-            
-            # Show helpful info about what was encoded
-            if encode_protocol == 'glyxel_only':
-                click.echo(f"Saved to {output} (glyxel-only, minimal size)")
-            else:
-                click.echo(f"Saved to {output} (dual content: PNG + glyxel)")
+            click.echo(f"Saved to {output} (dual content: PNG + glyxel)")
+    else:
+        # Display encoded content with protocol detection
+        display_protocol = protocol
+        if display_protocol is None or display_protocol == 'auto':
+            display_protocol = detect_best_protocol()
+            if debug and display_protocol != 'glyxel':
+                click.echo(f"Auto-detected: {display_protocol}", err=True)
         else:
-            # Display encoded content with protocol detection
-            display_protocol = protocol
-            if display_protocol is None or display_protocol == 'auto':
-                display_protocol = detect_best_protocol()
-                if display_protocol != 'glyxel':
-                    click.echo(f"Auto-detected: {display_protocol}", err=True)
-            else:
-                # Validate protocol is supported
-                if not supports_protocol(display_protocol):
+            # Validate protocol is supported
+            if not supports_protocol(display_protocol):
+                if debug:
                     click.echo(
                         f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
                         err=True
                     )
-            
-            display_meow(meow_content, meld=meld, protocol=display_protocol)
-    
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
-
-
-def show_capabilities():
-    """Show terminal capability detection results."""
-    detector = get_detector()
-    capabilities = detector.detect_capabilities(use_cache=False)
-    
-    click.echo("Terminal Capability Detection")
-    click.echo("=" * 40)
-    click.echo()
-    
-    # Show environment info
-    click.echo("Environment:")
-    env_vars = ['TERM', 'KITTY_WINDOW_ID', 'TERM_PROGRAM', 'LC_TERMINAL']
-    for var in env_vars:
-        value = os.getenv(var)
-        if value:
-            click.echo(f"  {var}={value}")
-    click.echo()
-    
-    # Show detected capabilities
-    click.echo("Detected Protocols:")
-    for cap in capabilities:
-        if cap.value == 'glyxel':
-            click.echo(f"  ✓ {cap.value} (universal fallback)")
-        else:
-            click.echo(f"  ✓ {cap.value}")
-    
-    click.echo()
-    click.echo(f"Best Protocol: {detector.select_best_protocol()}")
+        
+        display_meow(meow_content, meld=meld, protocol=display_protocol)
 
 
 def show_image_info(file_path: Path) -> None:
     """Display image file information."""
-    try:
-        from PIL import Image
+    from PIL import Image
 
-        with Image.open(file_path) as img:
-            click.echo(f"File: {file_path}")
-            click.echo(f"Format: {img.format}")
-            click.echo(f"Size: {img.width}×{img.height} pixels")
-            click.echo(f"Mode: {img.mode}")
-            if getattr(img, "is_animated", False):
-                frames = getattr(img, 'n_frames', '?')
-                click.echo(f"Animated: Yes ({frames} frames)")
-                if 'duration' in img.info:
-                    click.echo(f"Frame delay: {img.info['duration']}ms")
-            
-            # File size
-            size = file_path.stat().st_size
-            if size < 1024:
-                size_str = f"{size} bytes"
-            elif size < 1024 * 1024:
-                size_str = f"{size / 1024:.1f} KB"
-            else:
-                size_str = f"{size / (1024 * 1024):.1f} MB"
-            click.echo(f"File size: {size_str}")
-    
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+    with Image.open(file_path) as img:
+        click.echo(f"File: {file_path}")
+        click.echo(f"Format: {img.format}")
+        click.echo(f"Size: {img.width}×{img.height} pixels")
+        click.echo(f"Mode: {img.mode}")
+        if getattr(img, "is_animated", False):
+            frames = getattr(img, 'n_frames', '?')
+            click.echo(f"Animated: Yes ({frames} frames)")
+            if 'duration' in img.info:
+                click.echo(f"Frame delay: {img.info['duration']}ms")
+        
+        # File size
+        size = file_path.stat().st_size
+        if size < 1024:
+            size_str = f"{size} bytes"
+        elif size < 1024 * 1024:
+            size_str = f"{size / 1024:.1f} KB"
+        else:
+            size_str = f"{size / (1024 * 1024):.1f} MB"
+        click.echo(f"File size: {size_str}")
 
 
 if __name__ == "__main__":
+    # Add custom help topic for config
+    if len(sys.argv) == 3 and sys.argv[1] == "--help" and sys.argv[2] == "config":
+        from catpic.config import show_config_help
+        show_config_help()
+        sys.exit(0)
+    
     main()

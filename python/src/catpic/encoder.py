@@ -100,11 +100,22 @@ class CatpicEncoder:
         Initialize encoder.
         
         Args:
-            basis: BASIS level for encoding (default: BASIS_2_2)
+            basis: BASIS level for encoding (default: from config or BASIS_2_2)
         """
         if basis is None:
-            from .core import get_default_basis
-            basis = get_default_basis()
+            # Try to get from config
+            try:
+                from .config import load_config
+                config = load_config()
+                basis_str = config.get('basis', '2,2')
+                
+                # Parse basis string
+                bx, by = map(int, basis_str.split(','))
+                basis = BASIS((bx, by))
+            except Exception:
+                # Fall back to legacy or default
+                from .core import get_default_basis
+                basis = get_default_basis()
         
         self.basis = basis
         self.basis_tuple = basis.value  # (x, y) tuple
