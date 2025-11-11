@@ -76,7 +76,6 @@ def get_default_basis() -> BASIS:
     # Invalid format, fall back to default
     return BASIS.BASIS_2_2
 
-
 """
 Basis-aware aspect ratio correction system.
 
@@ -146,9 +145,6 @@ def get_char_aspect(basis: Optional[BASIS] = None) -> float:
         correction = BASIS_ASPECT_CORRECTIONS.get((basis_x, basis_y), 1.0)
         return base_aspect * correction
 
-
-# Update existing get_char_aspect() function with this new implementation
-# Remove the old simple version that just reads CATPIC_CHAR_ASPECT
 class CatpicCore:
     """Core catpic constants and Unicode character sets for mosaic encoding."""
     

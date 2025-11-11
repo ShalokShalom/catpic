@@ -80,9 +80,9 @@ def main(
       eval $(catpic --detect)                  # Apply detected config
       
       catpic --config                          # Show current config
-      eval $(catpic --detect)                  # Apply detected config
-      catpic photo.jpg --protocol sixel        # One-off protocol override
-      catpic photo.jpg --basis 2,4             # One-off basis override
+      eval "$(catpic --detect)"               # Apply detected config
+      catpic photo.jpg --protocol sixel       # One-off protocol override
+      catpic photo.jpg --basis 2,4            # One-off basis override
       
       catpic photo.jpg --debug                 # Show detection messages
 
@@ -155,21 +155,22 @@ def _main_impl(
         
         click.echo("#")
         click.echo("# To persist these settings:")
-        click.echo("#   eval $(catpic --detect)")
-        click.echo("#   echo 'eval $(catpic --detect)' >> ~/.bashrc")
+        click.echo('#   eval "$(catpic --detect)"')
+        click.echo('#   echo \'eval "$(catpic --detect)"\' >> ~/.bashrc')
         click.echo("#")
         click.echo("# To customize aspect ratios, edit CATPIC_CONFIG directly:")
-        click.echo('#   export CATPIC_CONFIG=\'{"protocol":"kitty",...,"aspect 2x4":1.8}\'')
+        click.echo('#   export CATPIC_CONFIG=\'{"protocol":"kitty",...,"aspect 2x4":3.5}\'')
         
         # Build config with detected values
+        # Note: aspect values are ABSOLUTE ratios (base * correction), not multipliers
         config = {
             "protocol": best_protocol,
             "basis": "2,2",
             "aspect base": 2.0,
-            "aspect 1x2": 2.0,
-            "aspect 2x2": 0.9,
-            "aspect 2x3": 1.5,
-            "aspect 2x4": 2.0,
+            "aspect 1x2": 4.0,    # 2.0 * 2.0
+            "aspect 2x2": 1.8,    # 2.0 * 0.9
+            "aspect 2x3": 3.0,    # 2.0 * 1.5
+            "aspect 2x4": 4.0,    # 2.0 * 2.0
         }
         
         click.echo(export_config(config))
@@ -187,7 +188,17 @@ def _main_impl(
     
     # Parse BASIS
     if basis is None:
-        basis_enum = get_default_basis()
+        # Try to get from config first, then legacy env var
+        try:
+            from .config import load_config
+            config = load_config()
+            basis_str = config.get('basis', None)
+            if basis_str:
+                basis_enum = parse_basis(basis_str)
+            else:
+                basis_enum = get_default_basis()
+        except Exception:
+            basis_enum = get_default_basis()
     else:
         try:
             basis_enum = parse_basis(basis)

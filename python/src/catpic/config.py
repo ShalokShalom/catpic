@@ -36,22 +36,22 @@ CONFIG_SCHEMA = {
     "aspect 1x2": {
         "description": "Aspect correction for basis 1,2",
         "type": float,
-        "default": 2.0,
+        "default": 4.0,  # 2.0 * 2.0
     },
     "aspect 2x2": {
         "description": "Aspect correction for basis 2,2",
         "type": float,
-        "default": 0.9,
+        "default": 1.8,  # 2.0 * 0.9
     },
     "aspect 2x3": {
         "description": "Aspect correction for basis 2,3",
         "type": float,
-        "default": 1.5,
+        "default": 3.0,  # 2.0 * 1.5
     },
     "aspect 2x4": {
         "description": "Aspect correction for basis 2,4",
         "type": float,
-        "default": 2.0,
+        "default": 4.0,  # 2.0 * 2.0
     },
 }
 
