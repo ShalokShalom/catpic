@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "catpic"
-version = "0.6.0"
+version = "0.9.0"
 description = "Display images in terminals using Unicode mosaics and ANSI colors"
 readme = "README.md"
 license = {text = "MIT"}

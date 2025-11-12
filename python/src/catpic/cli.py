@@ -51,7 +51,7 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--detect", is_flag=True, help="Detect terminal and output optimal config")
 @click.option("--config", "show_config", is_flag=True, help="Show current configuration")
 @click.option("--yes", "-y", is_flag=True, help="Non-interactive mode (accept all prompts)")
-@click.version_option(version="0.7.0")
+@click.version_option(version="0.9.0")
 def main(
     image_file: Optional[Path],
     basis: Optional[str],
