@@ -124,18 +124,58 @@ tmux source-file ~/.tmux.conf
 
 **Reference:** https://tmuxai.dev/tmux-allow-passthrough/
 
-## Environment Variables
+## Configuration
 
-catpic respects these environment variables for configuration:
-
-### `CATPIC_BASIS`
-
-Set your preferred BASIS quality level:
+catpic uses a unified JSON configuration via the `CATPIC_CONFIG` environment variable:
 
 ```bash
-export CATPIC_BASIS=2,4
-catpic photo.jpg  # Uses ultra quality by default
+export CATPIC_CONFIG='{"protocol":"sixel","basis":"2,4","aspect 2x4":2.0}'
+catpic photo.jpg  # Uses your configuration
 ```
+
+**Auto-detect and persist:**
+
+```bash
+# Detect optimal settings for your terminal
+catpic --detect
+
+# Example output with command to persist:
+export CATPIC_CONFIG='{"protocol":"sixel","basis":"2,2","aspect base":2.0,...}'
+
+# Add to your shell profile to make permanent:
+echo 'eval "$(catpic --detect)"' >> ~/.bashrc
+```
+
+**Configuration keys:**
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `protocol` | `kitty`, `sixel`, `iterm2`, `glyxel`, `auto` | `auto` | Graphics protocol to use |
+| `basis` | `1,2`, `2,2`, `2,3`, `2,4` | `2,2` | Quality level (see BASIS section) |
+| `aspect base` | float | `2.0` | Base character aspect ratio |
+| `aspect 1x2` | float | `2.0` | Aspect correction for BASIS 1×2 |
+| `aspect 2x2` | float | `0.9` | Aspect correction for BASIS 2×2 |
+| `aspect 2x3` | float | `1.5` | Aspect correction for BASIS 2×3 |
+| `aspect 2x4` | float | `2.0` | Aspect correction for BASIS 2×4 |
+
+**Session overrides:**
+
+You can override configuration per-command without changing your environment:
+
+```bash
+# Override protocol (doesn't modify CATPIC_CONFIG)
+catpic photo.jpg --protocol kitty
+
+# Override basis
+catpic photo.jpg --basis 2,4
+
+# Show current configuration
+catpic --config
+```
+
+## How BASIS Works
+
+BASIS (x, y) defines the glyxel grid per character:
 
 **Available BASIS levels:**
 
@@ -146,58 +186,24 @@ catpic photo.jpg  # Uses ultra quality by default
 | `2,3` | 64 | Smooth gradients | Unicode 13.0+ (2020) |
 | `2,4` | 256 | Maximum detail | Unicode 3.0 (Braille) |
 
-**Format:** `1,2` \| `2,2` \| `2,3` \| `2,4`  
-(You can also use `x` or `_` as separator: `2x4` or `2_4`)
+Higher BASIS = more glyxels per character = better quality, slower rendering.
 
 **Terminal compatibility:** Most modern terminals support all BASIS levels. If you see missing characters or boxes, your terminal may need:
 - Updated Unicode fonts (for 2×2 and 2×3 quadrant/sextant blocks)
 - Braille pattern support (for 2×4)
 
-Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to make permanent.
-
-### `CATPIC_CHAR_ASPECT`
-
-Set terminal character aspect ratio to fix image proportions:
+**Setting BASIS:**
 
 ```bash
-export CATPIC_CHAR_ASPECT=2.0
-catpic photo.jpg
+# Via configuration (recommended)
+export CATPIC_CONFIG='{"basis":"2,4",...}'
+
+# Per-command override
+catpic photo.jpg --basis 2,4
+
+# Legacy environment variable
+export CATPIC_BASIS=2,4
 ```
-
-**Common values:**
-- `2.0` - Most terminals (default)
-- `1.8` - Wider fonts
-- `2.2` - Narrower fonts
-
-**Why this matters:** Terminal characters are typically taller than they are wide. If your images look squashed (too wide) or stretched (too tall), adjust this value to match your terminal's font proportions.
-
-**Quick calibration:**
-
-If you have a test image with a circle:
-```bash
-catpic circle.png
-
-# If circle looks tall/narrow, decrease:
-export CATPIC_CHAR_ASPECT=1.8
-catpic circle.png
-
-# If circle looks wide/squashed, increase:
-export CATPIC_CHAR_ASPECT=2.2
-catpic circle.png
-```
-
-Once calibrated for your terminal, add to your shell profile.
-
-## How BASIS Works
-
-BASIS (x, y) defines the glyxel grid per character:
-
-- **1×2** (4 patterns): Fast, chunky. Good for large images or overviews.
-- **2×2** (16 patterns): Balanced. Default for most use cases.
-- **2×3** (64 patterns): Smooth gradients. Sextant blocks.
-- **2×4** (256 patterns): Maximum detail. Braille patterns.
-
-Higher BASIS = more glyxels per character = better quality, slower rendering.
 
 ## MEOW Format
 
