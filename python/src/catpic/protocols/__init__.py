@@ -1,4 +1,4 @@
-# Destination: src/catpic/protocols/__init__.py (UPDATE)
+# Destination: src/catpic/protocols/__init__.py
 
 """
 Protocol system for catpic.
@@ -10,6 +10,7 @@ from .base import ProtocolGenerator, ProtocolConfig
 from .glyxel import GlyxelGenerator
 from .kitty import KittyGenerator
 from .sixel import SixelGenerator
+from .iterm2 import ITerm2Generator  # ADD THIS LINE
 
 
 # Global registry
@@ -40,6 +41,7 @@ def list_protocols() -> list[str]:
 register_protocol('glyxel', GlyxelGenerator)
 register_protocol('kitty', KittyGenerator)
 register_protocol('sixel', SixelGenerator)
+register_protocol('iterm2', ITerm2Generator)  # ADD THIS LINE
 
 
 __all__ = [
@@ -49,3 +51,4 @@ __all__ = [
     'get_generator',
     'list_protocols',
 ]
+
