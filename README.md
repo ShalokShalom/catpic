@@ -9,6 +9,8 @@ catpic photo.jpg -o photo.meow
 cat photo.meow  # 🐱 Just works
 ```
 
+> **Note:** This is v0.9.0 Release Candidate. While core functionality is stable and well-tested, some features (multi-language implementations, iTerm2 protocol on non-Mac platforms, edge cases across terminal emulators) are still being validated. We'd love your feedback, bug reports, terminal compatibility notes, or just a "hey, this worked great!" on [GitHub Issues](https://github.com/friscorose/catpic/issues). Early adopters welcome! 🎉
+
 ## What are Glyxels?
 
 **Glyxels** (glyph + pixels) are what happens when you treat each terminal character as a tiny canvas. catpic uses the EnGlyph algorithm to subdivide characters into grids—for example, BASIS 2×4 means each character represents 8 glyxels (2 wide, 4 tall).
@@ -38,21 +40,27 @@ Result? A standard 80×24 terminal becomes a 160×96 glyxel display. Not bad for
 
 Each implementation provides the same core functionality with language-appropriate APIs and conventions.
 
+**Current status:**
+- **Python:** Stable, fully functional (reference implementation)
+- **C, Rust, Go:** Planned (architecture designed for multi-language support)
+
 ## Graphics Protocols
 
 catpic supports multiple terminal graphics protocols with automatic detection and fallback:
 
-| Protocol | Terminals | Quality | Speed | Notes |
-|----------|-----------|---------|-------|-------|
-| **Kitty** | Kitty | Excellent | Very Fast | Native graphics protocol |
-| **iTerm2** | iTerm2, VSCode<sup>†</sup>, WezTerm, Tabby | Excellent | Very Fast | Base64 PNG inline images |
-| **Sixel** | xterm<sup>‡</sup>, mlterm, foot, WezTerm | Good | Fast | Wide terminal compatibility |
-| **Glyxel** | All terminals | Fair | Fast | Unicode mosaic fallback |
+| Protocol | Terminals | Quality | Speed | Testing Status |
+|----------|-----------|---------|-------|----------------|
+| **Kitty** | Kitty | Excellent | Very Fast | ✅ Verified in Kitty terminal |
+| **iTerm2** | iTerm2, VSCode<sup>†</sup>, WezTerm, Tabby | Excellent | Very Fast | ⚠️ Needs Mac hardware testing |
+| **Sixel** | xterm<sup>‡</sup>, mlterm, foot, WezTerm | Good | Fast | ✅ Verified in xterm, VSCode |
+| **Glyxel** | All terminals | Fair | Fast | ✅ Universal fallback |
 
 <sup>†</sup> Requires `terminal.integrated.enableImages` setting  
 <sup>‡</sup> Requires `xterm -ti vt340` or sixel compile option
 
 **Auto-detection priority:** Kitty > iTerm2 > Sixel > Glyxel
+
+**Testing note:** iTerm2 protocol generates valid escape sequences (verified in tests) but needs validation on native iTerm2/Mac hardware. VSCode terminal image support varies by configuration.
 
 ```bash
 # Auto-detect best protocol
@@ -278,8 +286,8 @@ catpic is designed as a multi-language project with consistent behavior:
 
 ```
 catpic/
-├── python/              # Python reference implementation (stable)
-├── c/                   # C implementation (in development)
+├── python/              # Python reference implementation (stable, v0.9.0)
+├── c/                   # C implementation (planned)
 ├── rust/                # Rust implementation (planned)
 ├── go/                  # Go implementation (planned)
 ├── docs/                # Architecture and API documentation
@@ -287,14 +295,16 @@ catpic/
 └── benchmarks/          # Performance comparisons
 ```
 
-All implementations:
+**Multi-language goal:** All implementations will:
 - Support the identical MEOW format
 - Pass the same compliance test suite
 - Implement the EnGlyph algorithm consistently
 - Support all BASIS levels
 - Support all graphics protocols (Kitty, Sixel, iTerm2, Glyxel)
 
-Language-specific APIs differ to match ecosystem conventions.
+Language-specific APIs will differ to match ecosystem conventions.
+
+**Current status:** Python implementation is complete and serves as the reference. C/Rust/Go implementations are part of the roadmap.
 
 ## Documentation
 
