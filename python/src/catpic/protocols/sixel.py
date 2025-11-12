@@ -103,8 +103,17 @@ class SixelGenerator(ProtocolGenerator):
         """
         Basic Sixel encoder without libsixel dependency.
         
-        This is a simplified implementation that may not produce
-        optimal output but provides basic Sixel support.
+        This is a simplified implementation that produces valid
+        Sixel output for terminals without libsixel.
+        
+        Sixel format:
+        - DCS: ESC P <params> q
+        - Raster attributes: " <Pan> ; <Pad> ; <Ph> ; <Pv>
+        - Color definitions: # <color> ; 2 ; <R> ; <G> ; <B>
+        - Sixel data: # <color> <sixel-chars>
+        - Line terminator: -
+        - Carriage return: $
+        - String terminator: ESC \
         
         Args:
             img: Quantized image (palette mode)
@@ -124,10 +133,17 @@ class SixelGenerator(ProtocolGenerator):
         width, height = img.size
         pixels = img.load()
         
-        # Start Sixel sequence
+        # Start Sixel sequence: DCS with parameters
+        # P1=aspect ratio (typically omitted), P2=background mode (0=current color)
         parts = [b'\x1bPq']
         
+        # Raster attributes: "<Pan>;<Pad>;<Ph>;<Pv>
+        # Pan/Pad = pixel aspect ratio (1:1), Ph/Pv = width/height
+        raster_attr = f'"1;1;{width};{height}'.encode('ascii')
+        parts.append(raster_attr)
+        
         # Define color palette
+        # RGB values must be 0-100 (percentage, not 0-255!)
         palette_size = len(palette) // 3
         for i in range(palette_size):
             r = palette[i * 3] * 100 // 255
@@ -138,10 +154,11 @@ class SixelGenerator(ProtocolGenerator):
         
         # Encode image data (6 vertical pixels at a time)
         for y in range(0, height, 6):
-            band_has_data = False
+            first_color = True
             
             for color_idx in range(palette_size):
-                color_data = []
+                # Build sixel data for this color in this band
+                sixel_data = []
                 
                 for x in range(width):
                     sixel_char = 0
@@ -154,17 +171,41 @@ class SixelGenerator(ProtocolGenerator):
                             except (IndexError, KeyError):
                                 pass
                     
-                    if sixel_char > 0:
-                        color_data.append(chr(63 + sixel_char))
+                    sixel_data.append(sixel_char)
                 
-                if color_data:
-                    if band_has_data:
+                # Only output if this color is used in this band
+                if any(c > 0 for c in sixel_data):
+                    if not first_color:
+                        # Return to start of line for next color
                         parts.append(b'$')
+                    
+                    # Select color
                     parts.append(f'#{color_idx}'.encode('ascii'))
-                    parts.append(''.join(color_data).encode('ascii'))
-                    band_has_data = True
+                    
+                    # Encode sixel data with run-length encoding
+                    i = 0
+                    while i < len(sixel_data):
+                        char = sixel_data[i]
+                        # Count repeats
+                        count = 1
+                        while i + count < len(sixel_data) and sixel_data[i + count] == char:
+                            count += 1
+                        
+                        # Output with repeat count if > 3 (saves space)
+                        if count > 3:
+                            parts.append(f'!{count}'.encode('ascii'))
+                            parts.append(bytes([63 + char]))
+                        else:
+                            # Just output the characters
+                            for _ in range(count):
+                                parts.append(bytes([63 + char]))
+                        
+                        i += count
+                    
+                    first_color = False
             
-            if band_has_data:
+            # Move to next band (new line)
+            if y + 6 < height:
                 parts.append(b'-')
         
         # End Sixel sequence
