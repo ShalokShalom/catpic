@@ -10,7 +10,7 @@ from typing import Optional
 import click
 
 from .core import BASIS, get_default_basis
-from .decoder import load_meow_file, display_meow, show_info as show_meow_info
+from .decoder import load_meow_file, display_meow, show_info as show_meow_info, parse_meow
 from .encoder import CatpicEncoder
 from .protocols import list_protocols
 from .detection import detect_best_protocol, supports_protocol, get_detector
@@ -41,7 +41,7 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--width", "-w", type=int, help="Output width in characters")
 @click.option("--height", "-h", type=int, help="Output height in characters")
 @click.option("--output", "-o", type=click.Path(path_type=Path), help="Save to .meow file")
-@click.option("--info", "-i", is_flag=True, help="Show file information")
+@click.option("--info", "-i", is_flag=True, help="Show detailed information (then display)")
 @click.option("--meld", is_flag=True, help="Force runtime melding")
 @click.option(
     "--protocol", "-p",
@@ -51,7 +51,6 @@ def parse_basis(basis_str: str) -> BASIS:
 @click.option("--detect", is_flag=True, help="Detect terminal and output optimal config")
 @click.option("--config", "show_config", is_flag=True, help="Show current configuration")
 @click.option("--yes", "-y", is_flag=True, help="Non-interactive mode (accept all prompts)")
-@click.option("--debug", is_flag=True, help="Show debug messages")
 @click.version_option(version="0.7.0")
 def main(
     image_file: Optional[Path],
@@ -65,7 +64,6 @@ def main(
     detect: bool,
     show_config: bool,
     yes: bool,
-    debug: bool,
 ) -> None:
     """catpic - Terminal image viewer using MEOW v0.7 format.
 
@@ -103,7 +101,7 @@ def main(
     try:
         _main_impl(
             image_file, basis, width, height, output, info, meld,
-            protocol, detect, show_config, yes, debug
+            protocol, detect, show_config, yes
         )
     except Exception as e:
         # Never dump tracebacks when used with eval
@@ -123,7 +121,6 @@ def _main_impl(
     detect: bool,
     show_config: bool,
     yes: bool,
-    debug: bool,
 ) -> None:
     """Internal main implementation (wrapped by error handler)."""
     
@@ -213,32 +210,33 @@ def _main_impl(
             sys.exit(1)
         
         if info:
-            show_meow_info(str(image_file))
+            # Show MEOW metadata to stderr
+            show_meow_info_verbose(str(image_file), basis_enum, protocol)
+            sys.stderr.flush()
+        
+        # Auto-detect protocol if not specified
+        display_protocol = protocol
+        if display_protocol is None or display_protocol == 'auto':
+            display_protocol = detect_best_protocol()
         else:
-            # Auto-detect protocol if not specified
-            display_protocol = protocol
-            if display_protocol is None or display_protocol == 'auto':
-                display_protocol = detect_best_protocol()
-                if debug and display_protocol != 'glyxel':
-                    click.echo(f"Auto-detected: {display_protocol}", err=True)
-            else:
-                # Validate protocol is supported
-                if not supports_protocol(display_protocol):
-                    if debug:
-                        click.echo(
-                            f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
-                            err=True
-                        )
-            
-            # Load file and display
-            content = load_meow_file(str(image_file))
-            display_meow(content, meld=meld, protocol=display_protocol)
+            # Validate protocol is supported
+            if not supports_protocol(display_protocol):
+                click.echo(
+                    f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
+                    err=True
+                )
+        
+        # Load file and display to stdout
+        content = load_meow_file(str(image_file))
+        display_meow(content, meld=meld, protocol=display_protocol)
         return
 
     # Handle regular images
     if info:
-        show_image_info(image_file)
-        return
+        # Show image info + config to stderr
+        show_image_info_verbose(image_file, basis_enum, protocol)
+        sys.stderr.flush()
+        # Continue to display below
 
     # Encode image
     encoder = CatpicEncoder(basis=basis_enum)
@@ -280,18 +278,148 @@ def _main_impl(
         display_protocol = protocol
         if display_protocol is None or display_protocol == 'auto':
             display_protocol = detect_best_protocol()
-            if debug and display_protocol != 'glyxel':
-                click.echo(f"Auto-detected: {display_protocol}", err=True)
         else:
             # Validate protocol is supported
             if not supports_protocol(display_protocol):
-                if debug:
-                    click.echo(
-                        f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
-                        err=True
-                    )
+                click.echo(
+                    f"Warning: Protocol '{display_protocol}' may not be supported by this terminal",
+                    err=True
+                )
         
         display_meow(meow_content, meld=meld, protocol=display_protocol)
+
+
+def show_image_info_verbose(file_path: Path, basis: BASIS, protocol: Optional[str]) -> None:
+    """Display comprehensive image information to stderr."""
+    from PIL import Image
+    from .config import load_config
+
+    with Image.open(file_path) as img:
+        click.echo(f"File: {file_path}", err=True)
+        click.echo(f"Format: {img.format}", err=True)
+        click.echo(f"Size: {img.width}×{img.height} pixels", err=True)
+        click.echo(f"Mode: {img.mode}", err=True)
+        if getattr(img, "is_animated", False):
+            frames = getattr(img, 'n_frames', '?')
+            click.echo(f"Animated: Yes ({frames} frames)", err=True)
+            if 'duration' in img.info:
+                click.echo(f"Frame delay: {img.info['duration']}ms", err=True)
+        
+        # File size
+        size = file_path.stat().st_size
+        if size < 1024:
+            size_str = f"{size} bytes"
+        elif size < 1024 * 1024:
+            size_str = f"{size / 1024:.1f} KB"
+        else:
+            size_str = f"{size / (1024 * 1024):.1f} MB"
+        click.echo(f"File size: {size_str}", err=True)
+        
+        # Configuration info
+        click.echo("", err=True)
+        click.echo("Configuration:", err=True)
+        
+        config = load_config()
+        protocol_source = "CATPIC_CONFIG" if config.get('protocol') != 'auto' else "auto-detected"
+        display_protocol = protocol or config.get('protocol', 'auto')
+        if display_protocol == 'auto':
+            display_protocol = detect_best_protocol()
+            protocol_source = "auto-detected"
+        
+        click.echo(f"  Protocol: {display_protocol} ({protocol_source})", err=True)
+        
+        basis_x, basis_y = basis.value
+        basis_source = "CATPIC_CONFIG" if config.get('basis') != '2,2' else "default"
+        click.echo(f"  Basis: {basis_x},{basis_y} ({basis_source})", err=True)
+        
+        from .core import get_char_aspect
+        aspect = get_char_aspect(basis)
+        click.echo(f"  Aspect ratio: {aspect:.1f} (basis {basis_x}x{basis_y})", err=True)
+        click.echo("", err=True)
+
+
+def show_meow_info_verbose(filepath: str, basis: BASIS, protocol: Optional[str]) -> None:
+    """Display comprehensive MEOW file information to stderr."""
+    from .config import load_config
+    
+    content = load_meow_file(filepath)
+    meow = parse_meow(content)
+    
+    click.echo(f"File: {filepath}", err=True)
+    click.echo(f"Format: MEOW v{meow.canvas.version if meow.canvas else '?'}", err=True)
+    
+    if meow.canvas and meow.canvas.size:
+        w, h = meow.canvas.size
+        click.echo(f"Size: {w}×{h} characters (stored)", err=True)
+    
+    if meow.canvas and meow.canvas.basis != (2, 2):
+        bx, by = meow.canvas.basis
+        click.echo(f"Basis: {bx}×{by} (stored)", err=True)
+    
+    # Look for original size in layer metadata
+    for layer in meow.layers:
+        if layer.ctype == 'png' and layer.cells:
+            try:
+                import base64
+                from .protocols.core import decode_png
+                png_data = base64.b64decode(layer.cells)
+                img = decode_png(png_data)
+                click.echo(f"Original: {img.width}×{img.height} pixels", err=True)
+                break
+            except:
+                pass
+    
+    click.echo(f"Layers: {len(meow.layers)}", err=True)
+    
+    # Content types - include both cells (protocol data) and visible output (glyxel)
+    ctypes = []
+    for layer in meow.layers:
+        if layer.ctype:
+            ctypes.append(layer.ctype)
+        if layer.visible_output:
+            ctypes.append('glyxel')
+    
+    if ctypes:
+        # Remove duplicates while preserving order
+        unique_ctypes = []
+        for ct in ctypes:
+            if ct not in unique_ctypes:
+                unique_ctypes.append(ct)
+        click.echo(f"Content types: {', '.join(unique_ctypes)}", err=True)
+    
+    # File size
+    from pathlib import Path
+    size = Path(filepath).stat().st_size
+    if size < 1024:
+        size_str = f"{size} bytes"
+    elif size < 1024 * 1024:
+        size_str = f"{size / 1024:.1f} KB"
+    else:
+        size_str = f"{size / (1024 * 1024):.1f} MB"
+    click.echo(f"File size: {size_str}", err=True)
+    
+    # Configuration info
+    click.echo("", err=True)
+    click.echo("Configuration:", err=True)
+    
+    config = load_config()
+    display_protocol = protocol or config.get('protocol', 'auto')
+    if display_protocol == 'auto':
+        display_protocol = detect_best_protocol()
+    
+    click.echo(f"  Protocol: {display_protocol}", err=True)
+    
+    from .core import get_char_aspect
+    aspect = get_char_aspect(basis)
+    basis_x, basis_y = basis.value
+    click.echo(f"  Aspect ratio: {aspect:.1f} (basis {basis_x}x{basis_y})", err=True)
+    
+    if meow.canvas and meow.canvas.size:
+        w, h = meow.canvas.size
+        click.echo(f"\nDisplay dimensions:", err=True)
+        click.echo(f"  Canvas: {w}×{h} characters (from file)", err=True)
+    
+    click.echo("", err=True)
 
 
 def show_image_info(file_path: Path) -> None:
