@@ -187,18 +187,25 @@ BASIS (x, y) defines the glyxel grid per character:
 
 **Available BASIS levels:**
 
-| BASIS | Patterns | Quality | Unicode Requirement |
-|-------|----------|---------|---------------------|
-| `1,2` | 4 | Fast, chunky | Basic (block elements) |
-| `2,2` | 16 | Balanced (default) | Unicode 13.0+ (2020) |
-| `2,3` | 64 | Smooth gradients | Unicode 13.0+ (2020) |
-| `2,4` | 256 | Maximum detail | Unicode 3.0 (Braille) |
+| BASIS | Patterns | Quality | Color Fidelity | Unicode Requirement |
+|-------|----------|---------|----------------|---------------------|
+| `1,2` | 4 | Fast, chunky | Perfect (2 colors/cell) | Basic (block elements) |
+| `2,2` | 16 | Balanced | Approximate | Unicode 13.0+ (quadrant blocks) |
+| `2,3` | 64 | Smooth gradients | Approximate | Unicode 13.0+ (sextant blocks) |
+| `2,4` | 256 | Maximum detail | Approximate | Unicode 13.0+ (mosaic blocks U+1CD00) |
 
-Higher BASIS = more glyxels per character = better quality, slower rendering.
+**Trade-offs:**
+- **BASIS 1×2**: Perfect color representation (2 colors per cell, no approximation) but chunky appearance
+- **BASIS > 1×2**: Better spatial detail but colors are approximated to fit 2-color constraint per cell
+- Higher BASIS = more glyxels per character = better detail, but slower rendering and color approximation
+
+**Color accuracy note:** Each terminal character can only display 2 colors (foreground + background). BASIS 1×2 uses simple half-blocks, so colors map perfectly. Higher BASIS levels subdivide cells into more glyxels, requiring color approximation to find the best 2-color representation for each cell's content.
 
 **Terminal compatibility:** Most modern terminals support all BASIS levels. If you see missing characters or boxes, your terminal may need:
-- Updated Unicode fonts (for 2×2 and 2×3 quadrant/sextant blocks)
-- Braille pattern support (for 2×4)
+- Updated Unicode fonts with Unicode 13.0+ support
+- Proper rendering of quadrant blocks (U+2596-259F)
+- Proper rendering of sextant blocks (U+1FB00-1FB3B)
+- Proper rendering of mosaic blocks (U+1CD00-1CEBF) for BASIS 2×4
 
 **Setting BASIS:**
 
@@ -208,9 +215,6 @@ export CATPIC_CONFIG='{"basis":"2,4",...}'
 
 # Per-command override
 catpic photo.jpg --basis 2,4
-
-# Legacy environment variable
-export CATPIC_BASIS=2,4
 ```
 
 ## MEOW Format
@@ -239,7 +243,7 @@ MEOW files contain:
 - Standard ANSI escape codes for colors
 - Unicode characters encoding glyxel patterns
 
-**Format specification:** See [spec/meow_specification.md](spec/meow_specification.md)
+**Format specification:** See [spec/meow_format.md](spec/meow_format.md)
 
 ## Troubleshooting
 
