@@ -11,6 +11,32 @@ cat photo.meow  # 🐱 Just works
 
 > **Note:** This is v0.9.0 Release Candidate. While core functionality is stable and well-tested, some features (multi-language implementations, iTerm2 protocol on non-Mac platforms, edge cases across terminal emulators) are still being validated. We'd love your feedback, bug reports, terminal compatibility notes, or just a "hey, this worked great!" on [GitHub Issues](https://github.com/friscorose/catpic/issues). Early adopters welcome! 🎉
 
+## Installation
+
+**Quick install (recommended):**
+
+```bash
+# Using uv (fast, modern)
+uv tool install catpic
+
+# Using pipx (isolated environment)
+pipx install catpic
+
+# Using pip (system-wide)
+pip install catpic
+```
+
+**Verify installation:**
+```bash
+catpic --version
+catpic --detect  # Check your terminal's capabilities
+```
+
+**First image:**
+```bash
+catpic photo.jpg
+```
+
 ## What are Glyxels?
 
 **Glyxels** (glyph + pixels) are what happens when you treat each terminal character as a tiny canvas. catpic uses the EnGlyph algorithm to subdivide characters into grids—for example, BASIS 2×4 means each character represents 8 glyxels (2 wide, 4 tall).
@@ -27,12 +53,81 @@ Result? A standard 80×24 terminal becomes a 160×96 glyxel display. Not bad for
 
 - **`cat`-compatible format**: MEOW files display with standard POSIX `cat`
 - **Multiple protocols**: Kitty Graphics, Sixel, iTerm2, and Glyxel (Unicode mosaic)
+- **Protocol-aware animation**: GIF playback works across ALL protocols (even those without native animation support)
 - **Multiple BASIS levels**: Trade speed for quality (1×2 to 2×4)
-- **Smooth animations**: GIF playback with no flicker
+- **Smooth animations**: No flicker, proper timing, loop control
 - **Auto-detection**: Picks the best protocol for your terminal
 - **Primitives API**: Build your own TUI graphics with composable functions
 - **Environment aware**: Automatic terminal size and aspect ratio detection
 - **Multi-language**: Python (stable), C (in development), Rust/Go (planned)
+
+## Architecture (v0.9)
+
+catpic uses a layered architecture for protocol-agnostic rendering:
+
+- **FrameBuffer**: Protocol-agnostic display interface
+- **LayerRenderer**: Timing-aware frame sequences with loop support
+- **GeometryAPI**: Canvas inference and format conversions
+- **Protocol Generators**: Pluggable output formats (Kitty, Sixel, iTerm2, Glyxel)
+
+This design enables:
+- **Multi-protocol animation** - Same MEOW file works across all terminals
+- **Frame sequencing without native support** - Kitty/Sixel/iTerm2 don't have animation primitives, but catpic provides smooth GIF playback by managing frame sequences with precise timing
+- **External frame sources** - Games, video players, emulators can use catpic for display
+- **Idempotent conversions** - Glyxel ↔ PNG ↔ Glyxel with no data loss
+- **Future extensions** - New features without breaking MEOW format
+
+### Using catpic as a Library
+
+catpic's abstractions make it easy to add terminal graphics to your project:
+
+**Display static images:**
+```python
+from catpic.framebuffer import FrameBuffer
+from catpic.detection import detect_best_protocol
+
+# Auto-detect best protocol for this terminal
+protocol = detect_best_protocol()
+fb = FrameBuffer(protocol, width=80, height=24)
+
+# Render PNG data
+with open('image.png', 'rb') as f:
+    fb.render(f.read())
+```
+
+**Animated sequences (games, video, live displays):**
+```python
+from catpic.renderer import LayerRenderer
+
+renderer = LayerRenderer(fb)
+renderer.setup_animation_canvas(height=24)
+
+# Game loop or video frames
+frames = [
+    {'data': frame1_png, 'render_at_ms': 0},
+    {'data': frame2_png, 'render_at_ms': 16},  # 60 FPS
+    {'data': frame3_png, 'render_at_ms': 32},
+]
+
+renderer.render_with_loop(frames, loop_count=0)  # Loop forever
+renderer.teardown_animation_canvas(height=24)
+```
+
+**Canvas geometry calculations:**
+```python
+from catpic.geometry import GeometryAPI
+
+# Convert between glyxel cells and pixels
+pixel_size = GeometryAPI.glyxel_to_pixels(width=40, height=20, basis=(2,4))
+cell_size = GeometryAPI.pixels_to_glyxel(pixel_width=320, pixel_height=240, basis=(2,4))
+
+# Infer canvas dimensions from MEOW content
+from catpic.decoder import parse_meow
+meow = parse_meow(meow_content)
+width, height = GeometryAPI.infer_canvas_size(meow)
+```
+
+**For complete API documentation**, see [docs/api-reference.md](docs/api-reference.md).
 
 ## Installation & Usage
 
@@ -312,11 +407,24 @@ Language-specific APIs will differ to match ecosystem conventions.
 
 ## Documentation
 
-- **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Installation and usage for each language
+### User Documentation
+- **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Installation and language-specific usage
+- **[docs/getting-started.md](docs/getting-started.md)** - Quick start guide
 - **[docs/primitives_api.md](docs/primitives_api.md)** - Low-level API for TUI development
-- **[spec/meow_v06_specification.md](spec/meow_v06_specification.md)** - Format specification
+- **[docs/api-reference.md](docs/api-reference.md)** - Complete API reference
+
+### Implementation Guides
+- **[docs/implementations/python.md](docs/implementations/python.md)** - Python-specific documentation
+- **[docs/implementations/c.md](docs/implementations/c.md)** - C implementation guide
+
+### Specifications
+- **[spec/meow_format.md](spec/meow_format.md)** - MEOW format specification (v0.9)
 - **[spec/compliance.md](spec/compliance.md)** - Cross-language test requirements
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development guidelines
+- **[spec/protocol.md](spec/protocol.md)** - Graphics protocol implementations
+- **[spec/api.md](spec/api.md)** - API design principles
+
+### Contributing
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development guidelines and standards
 
 ## Related Projects
 
@@ -327,6 +435,7 @@ Language-specific APIs will differ to match ecosystem conventions.
 
 **What makes catpic different:**
 - **MEOW format** - Stored, layered, animated terminal graphics that work with `cat`
+- **Universal animation** - GIF playback across ALL protocols (even Kitty/Sixel/iTerm2 which lack native animation)
 - **Multi-protocol** - Automatic fallback across terminal capabilities
 - **Basis-aware rendering** - Quality vs. size tradeoffs with consistent API
 - **Multi-language** - Consistent behavior across Python, C, Rust, Go implementations
@@ -351,4 +460,49 @@ MIT—do whatever you want with it.
 
 ---
 
-*Built with Claude (Anthropic) exploring terminal graphics techniques that don't suck.*
+## About This Project
+
+**catpic was built entirely through Claude Sonnet 4.5's free web interface.**
+
+Yes, really. The entire codebase—architecture, implementation, tests, documentation, and this README—was developed through conversational sessions with Claude. No paid API credits, no enterprise plan, just careful session management and clear communication.
+
+**What this demonstrates:**
+- **Serious engineering** is possible with free-tier AI tools when managed properly
+- **Architecture-first thinking** works: we designed abstractions (FrameBuffer, LayerRenderer) before implementing features
+- **Incremental complexity** wins: started with static images, added protocols, then animation, then timing models
+- **Test-driven development** catches regressions: 283 tests kept refactoring safe
+- **Clear requirements** matter: specific goals, checkpoints, and visual verification tests guided every session
+
+**The human contribution:**
+- **EnGlyph algorithm** - Core glyxel encoding/decoding (pure human code, no LLM)
+- System architecture and API design decisions
+- Quality assurance through visual verification across terminals
+- Session management and continuation prompts (the real meta-skill)
+- Terminal testing across platforms (Kitty, xterm, VSCode, tmux)
+
+**The AI contribution:**
+- Complete implementation of all code (encoder, decoder, protocols, geometry)
+- Test suite design and implementation (283 tests)
+- Documentation generation (specs, API docs, examples)
+- Bug diagnosis and fixes (sixel rendering, canvas inference, protocol teardown)
+- Architectural refactoring (v0.9 protocol-aware animation)
+
+**This isn't a toy project.** It's a production-ready terminal graphics library with:
+- Multi-protocol support (4 different terminal graphics systems)
+- Idempotent format conversion (glyxel ↔ PNG ↔ glyxel)
+- Protocol-agnostic animation with timing models
+- Clean abstractions for external use (games, video, emulators)
+- Comprehensive test coverage
+
+**If you're building something non-trivial with AI assistance:**
+- Manage context carefully (continuation prompts are your state persistence)
+- Design first, implement second (architecture pays off)
+- Test continuously (catch issues early)
+- Use visual verification for graphics/UI work
+- Keep sessions focused (one feature per checkpoint)
+
+The tools are free. The results can be serious. You just need a plan and patience.
+
+---
+
+*Built with Claude Sonnet 4.5 (Anthropic) exploring what's possible when you treat AI as a thoughtful collaborator rather than a magic code generator.*
