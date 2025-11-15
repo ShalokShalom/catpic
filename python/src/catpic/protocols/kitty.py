@@ -106,6 +106,20 @@ class KittyGenerator(ProtocolGenerator):
         """
         return True
     
+    def clear(self) -> bytes:
+        """
+        Clear previous Kitty image by restoring cursor position.
+
+        For animation, assumes cursor was saved at canvas origin.
+        Restores to that position so next frame renders at same location.
+
+        Returns:
+            ANSI escape sequence to restore cursor position
+        """
+        # ESC[u restores cursor to saved position
+        # This matches the glyxel animation pattern
+        return b'\x1b[u'
+
     def _quality_to_compress_level(self, quality: str) -> int:
         """
         Map quality setting to PNG compression level.

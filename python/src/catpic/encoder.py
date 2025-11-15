@@ -219,7 +219,7 @@ class CatpicEncoder:
         parts.append(build_footer(height))
         
         return ''.join(parts)
-    
+
     def encode_animation(
         self,
         image_path: Union[str, Path],
@@ -229,21 +229,25 @@ class CatpicEncoder:
         protocol: Optional[str] = None,
     ) -> str:
         """
-        Encode animated GIF to MEOW v0.7 format with layer zero.
+        Encode animated GIF to MEOW v0.9 format with dual content.
         
-        Note: Animation currently uses glyxel-only encoding.
-        Protocol support for animations is future work.
+        Creates PNG data for each frame to enable protocol-aware animation
+        across kitty, sixel, iterm2, and glyxel.
         
         Args:
             image_path: Path to animated GIF
             width: Output width in characters (default: intelligent sizing)
             height: Output height in characters (default: auto from aspect)
             delay: Override frame delay in milliseconds (default: from GIF)
-            protocol: Protocol mode (currently ignored for animations)
+            protocol: Protocol mode ('glyxel', 'glyxel_only', None=dual content)
         
         Returns:
-            MEOW v0.7 formatted string with frame metadata
+            MEOW v0.9 formatted string with frame metadata and PNG data
         """
+        # Default to dual content (PNG + glyxel)
+        if protocol is None:
+            protocol = 'glyxel'
+        
         with Image.open(image_path) as img:
             if not getattr(img, "is_animated", False):
                 # Not animated, encode as static
@@ -259,7 +263,7 @@ class CatpicEncoder:
             img.seek(0)
             img_rgb = img.convert("RGB")
             
-            # Intelligent sizing for animations too
+            # Intelligent sizing for animations
             if width is None and height is None:
                 term_width, term_height = get_terminal_size()
                 max_cols = min(80, term_width - 2)
@@ -277,7 +281,7 @@ class CatpicEncoder:
                 image_aspect = img_rgb.height / img_rgb.width
                 width = int(height * char_aspect / image_aspect / (basis_y / basis_x))
             
-            # Build MEOW v0.7 file with layer zero structure
+            # Build MEOW v0.9 file with layer zero structure
             parts = []
             
             canvas_metadata = {
@@ -288,25 +292,35 @@ class CatpicEncoder:
             }
             parts.append(build_layer_zero(canvas_metadata, height))
             
-            # Encode each frame as a layer with frame number
+            # Encode each frame as a layer with dual content
             for frame_idx in range(frame_count):
                 img.seek(frame_idx)
                 frame_rgb = img.convert("RGB")
                 
-                # Convert to cells
+                # Convert to cells for glyxel
                 cells = image_to_cells(frame_rgb, width, height, basis=self.basis)
                 
-                # Generate ANSI output
+                # Generate ANSI output (glyxel fallback)
                 ansi_lines = cells_to_ansi_lines(cells)
                 ansi_output = '\n'.join(ansi_lines)
                 
-                # Layer block with frame metadata
+                # Layer metadata with frame number and timing
                 layer_metadata = {
                     "f": frame_idx,
                     "delay": default_delay,
                 }
+                
+                # Add PNG data for protocol-aware rendering (unless glyxel_only)
+                if protocol != 'glyxel_only':
+                    png_data = encode_png(frame_rgb)
+                    layer_metadata["ctype"] = "png"
+                    layer_metadata["cells"] = base64.b64encode(png_data).decode('ascii')
+                
+                # Emit layer metadata
                 layer_json = json.dumps(layer_metadata, separators=(',', ':'))
                 parts.append(f'\x1b]{MEOW_OSC_NUMBER};{layer_json}\x07')
+                
+                # Emit visible output (glyxel)
                 parts.append(ansi_output)
                 
                 # Frame separator for cat viewing (visual divider)

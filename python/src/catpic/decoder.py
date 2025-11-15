@@ -1,20 +1,23 @@
 # Destination: src/catpic/decoder.py
 
 """
-MEOW v0.7 decoder - Protocol-aware display with graceful fallback
+MEOW v0.9 decoder - Protocol-aware display with animation support
 """
 
 import sys
-import time
 import os
 import base64
 from pathlib import Path
-from typing import Union, Optional
+from typing import Union, Optional, List, Dict, Any
 
 from .core import EXIT_ERROR_FILE_NOT_FOUND, EXIT_ERROR_GENERAL, DEFAULT_FRAME_DELAY
 from .meow_parser import MEOWParser, MEOWContent
 from .protocols import get_generator, list_protocols
 from .protocols.core import decode_png
+from .framebuffer import FrameBuffer
+from .renderer import LayerRenderer
+from .detection import detect_best_protocol
+from .geometry import GeometryAPI
 
 
 def get_terminal_size() -> tuple[int, int]:
@@ -24,49 +27,6 @@ def get_terminal_size() -> tuple[int, int]:
         return (size.columns, size.lines)
     except (AttributeError, OSError):
         return (80, 24)
-
-
-def truncate_ansi_line(line: str, max_width: int) -> str:
-    """
-    Truncate a line with ANSI codes to max_width visible characters.
-    
-    ANSI escape sequences don't count toward visible width.
-    """
-    if max_width <= 0:
-        return ""
-    
-    visible_count = 0
-    result = []
-    i = 0
-    
-    while i < len(line) and visible_count < max_width:
-        if line[i:i+2] == '\x1b[':
-            # ANSI escape sequence - find the end
-            end = line.find('m', i)
-            if end != -1:
-                result.append(line[i:end+1])
-                i = end + 1
-                continue
-        
-        # Regular character
-        result.append(line[i])
-        visible_count += 1
-        i += 1
-    
-    return ''.join(result)
-
-
-def truncate_ansi_output(output: str, max_width: int, max_height: int) -> str:
-    """Truncate ANSI output to fit terminal dimensions."""
-    lines = output.split('\n')
-    
-    # Truncate to max height
-    lines = lines[:max_height]
-    
-    # Truncate each line to max width
-    truncated_lines = [truncate_ansi_line(line, max_width) for line in lines]
-    
-    return '\n'.join(truncated_lines)
 
 
 # ============================================================================
@@ -123,7 +83,7 @@ def save_meow_file(filepath: Union[str, Path], content: Union[str, bytes]) -> No
 
 
 # ============================================================================
-# Display Operations
+# Display Operations - Protocol-Aware
 # ============================================================================
 
 def display_meow(
@@ -132,13 +92,16 @@ def display_meow(
     protocol: Optional[str] = None,
 ) -> None:
     """
-    Display MEOW content to terminal with protocol support.
+    Display MEOW content with protocol-aware rendering.
+    
+    Uses FrameBuffer and LayerRenderer abstractions to enable
+    animation across all graphics protocols (kitty, sixel, iterm2, glyxel).
 
     Args:
         content: MEOW format content (string or bytes)
         meld: Force runtime melding (translucency recomputation)
-        protocol: Protocol to use ('glyxel', 'sixel', 'kitty', etc.)
-                 None = use visible output (glyxel fallback)
+        protocol: Protocol to use ('kitty', 'sixel', 'iterm2', 'glyxel', 'auto')
+                 None or 'auto' = auto-detect best protocol
     
     Raises:
         SystemExit: If content cannot be parsed
@@ -156,101 +119,129 @@ def display_meow(
         print(f"Error: Invalid MEOW content: {e}", file=sys.stderr)
         sys.exit(EXIT_ERROR_GENERAL)
     
-    # Check if animated
-    has_frames = any(layer.frame is not None for layer in meow.layers)
-
-    if has_frames:
-        # Animations always use visible output (for now)
-        _display_animated(meow, meld)
+    # Infer canvas size if not explicitly provided
+    width, height = GeometryAPI.infer_canvas_size(meow)
+    
+    # Determine protocol
+    if protocol is None or protocol == 'auto':
+        protocol_name = detect_best_protocol()
     else:
-        # Static images can use protocol display
-        _display_static(meow, meld, protocol, content_bytes)
+        protocol_name = protocol
+    
+    # Check if we can use protocol-aware rendering
+    has_png_data = any(layer.cells and layer.ctype == 'png' for layer in meow.layers)
+    
+    if has_png_data and protocol_name != 'glyxel':
+        # Protocol-aware rendering (kitty, sixel, iterm2)
+        _display_protocol_aware(meow, protocol_name, width, height, meld)
+    else:
+        # Fallback to glyxel visible output
+        _display_glyxel_fallback(content_bytes, meow, width, height)
 
 
-def _display_static(
+def _display_protocol_aware(
     meow: MEOWContent,
+    protocol: str,
+    width: int,
+    height: int,
     meld: bool,
-    protocol: Optional[str],
-    raw_content: bytes,
 ) -> None:
     """
-    Display static MEOW content with protocol support.
+    Display MEOW using protocol-aware rendering with FrameBuffer + LayerRenderer.
     
-    If protocol specified and cells field present, use protocol display.
-    Otherwise fall back to visible output (glyxel).
+    Supports both static images and animations using native protocols.
     """
-    # Try protocol display if requested
-    if protocol and protocol != 'glyxel':
-        # Look for layer with cells field
-        for layer in meow.layers:
-            if layer.cells and layer.ctype == 'png':
-                try:
-                    # Decode PNG from cells field
-                    png_data = base64.b64decode(layer.cells)
-                    img = decode_png(png_data)
-                    
-                    # Get terminal dimensions
-                    term_width, term_height = get_terminal_size()
-                    
-                    # Calculate display size using intelligent sizing
-                    # Same logic as encoder: min(native, terminal - margin)
-                    from .encoder import calculate_display_dimensions
-                    from .core import get_default_basis
-                    
-                    basis = get_default_basis()
-                    max_cols = term_width - 2  # Leave margin
-                    max_rows = term_height - 2  # Leave room for prompt
-                    
-                    display_width, display_height = calculate_display_dimensions(
-                        img, basis, max_cols=max_cols, max_rows=max_rows
-                    )
-                    
-                    # Convert to pixels for protocol (protocols work in pixels)
-                    basis_x, basis_y = basis.value
-                    pixel_width = display_width * basis_x
-                    pixel_height = display_height * basis_y
-                    
-                    from .protocols import ProtocolConfig
-                    config = ProtocolConfig(
-                        max_width=pixel_width,
-                        max_height=pixel_height,
-                    )
-                    
-                    # Generate protocol output
-                    generator = get_generator(protocol)
-                    
-                    # Re-encode PNG for protocol (with resizing)
-                    from .protocols.core import encode_png, resize_if_needed
-                    resized_img = resize_if_needed(img, pixel_width, pixel_height, preserve_aspect=True)
-                    resized_png = encode_png(resized_img)
-                    
-                    output = generator.generate(resized_png, config)
-                    
-                    # Display protocol output
-                    print(output.decode('utf-8'), end='')
-                    print()  # Trailing newline
-                    sys.stdout.flush()
-                    return
-                    
-                except Exception as e:
-                    # Protocol display failed, fall back to glyxel
-                    print(f"Warning: Protocol display failed: {e}", file=sys.stderr)
-                    print("Falling back to glyxel...", file=sys.stderr)
+    # Create display abstractions
+    framebuffer = FrameBuffer(protocol, width, height)
+    renderer = LayerRenderer(framebuffer)
     
-    # Fallback: use raw content (includes glyxel visible output + footer)
-    if isinstance(raw_content, bytes):
-        print(raw_content.decode('utf-8'), end='')
+    # Prepare layers for rendering
+    layers_data = []
+    cumulative_time = 0
+    is_animation = False
+    
+    for layer in meow.layers:
+        if not layer.cells or layer.ctype != 'png':
+            continue
+        
+        try:
+            # Decode PNG data
+            png_data = base64.b64decode(layer.cells)
+            
+            # Calculate timing
+            if layer.frame is not None and layer.delay:
+                # Animated: use cumulative timing
+                render_at_ms = cumulative_time
+                cumulative_time += layer.delay
+                is_animation = True
+            else:
+                # Static: immediate
+                render_at_ms = 0
+            
+            layers_data.append({
+                'data': png_data,
+                'render_at_ms': render_at_ms,
+            })
+            
+        except Exception as e:
+            print(f"Warning: Failed to decode layer: {e}", file=sys.stderr)
+            continue
+    
+    if not layers_data:
+        print("Error: No valid PNG layers found", file=sys.stderr)
+        sys.exit(EXIT_ERROR_GENERAL)
+    
+    # Setup animation canvas if this is animated content
+    if is_animation:
+        # Calculate actual terminal lines needed for protocol
+        basis = meow.canvas.basis if meow.canvas and meow.canvas.basis else (2, 2)
+        terminal_lines = GeometryAPI.get_terminal_lines_for_protocol(height, basis, protocol)
+        renderer.setup_animation_canvas(terminal_lines)
+    
+    # Get loop count
+    loop_count = meow.canvas.loop if meow.canvas else 1
+    
+    # Render with protocol-aware animation
+    try:
+        renderer.render_with_loop(layers_data, loop_count)
+    except KeyboardInterrupt:
+        # Clean exit on Ctrl+C
+        print(file=sys.stderr)
+    finally:
+        # Teardown animation canvas if it was set up
+        if is_animation:
+            basis = meow.canvas.basis if meow.canvas and meow.canvas.basis else (2, 2)
+            terminal_lines = GeometryAPI.get_terminal_lines_for_protocol(height, basis, protocol)
+            renderer.teardown_animation_canvas(terminal_lines)
+
+
+def _display_glyxel_fallback(content_bytes: bytes, meow: MEOWContent, width: int, height: int) -> None:
+    """
+    Fallback to glyxel visible output rendering.
+    
+    Used when:
+    - No PNG data available
+    - Protocol is glyxel
+    - Protocol-aware rendering fails
+    """
+    # Check if animated
+    has_frames = any(layer.frame is not None for layer in meow.layers)
+    
+    if has_frames:
+        # Use legacy animation rendering (glyxel visible output)
+        _display_animated_legacy(meow, height)
     else:
-        print(raw_content, end='')
-    sys.stdout.flush()
+        # Simple static display
+        print(content_bytes.decode('utf-8'), end='')
+        sys.stdout.flush()
 
 
-def _display_animated(meow: MEOWContent, meld: bool):
+def _display_animated_legacy(meow: MEOWContent, canvas_height: int):
     """
-    Display animated MEOW content with full frame buffering.
+    Legacy glyxel animation display (preserves existing behavior).
     
-    Each frame is completely rendered to a buffer before any terminal I/O,
-    preventing visual tearing and interleaved output artifacts.
+    Uses visible_output field with ANSI cursor positioning.
+    This is kept for backward compatibility and as glyxel fallback.
     """
     frames = meow.group_by_frame()
     loop_count = meow.canvas.loop if meow.canvas else 1
@@ -259,16 +250,12 @@ def _display_animated(meow: MEOWContent, meld: bool):
     # Get terminal size for truncation
     term_width, term_height = get_terminal_size()
     
-    # Get canvas height
-    canvas_height = meow.canvas.size[1] if meow.canvas and meow.canvas.size else 24
-    
     # Emit layer zero to scroll terminal and establish origin
-    if meow.canvas and meow.canvas.size:
-        height = meow.canvas.size[1]
+    if canvas_height:
         # Reserve vertical space (scroll terminal)
-        print('\n' * height, end='')
+        print('\n' * canvas_height, end='')
         # Move up to canvas top
-        print(f'\x1b[{height}A', end='')
+        print(f'\x1b[{canvas_height}A', end='')
         # Save cursor at canvas origin
         print('\x1b[s', end='')
         sys.stdout.flush()
@@ -280,19 +267,18 @@ def _display_animated(meow: MEOWContent, meld: bool):
     print('\x1b[?25l', end='', flush=True)
     
     try:
+        import time
+        
         iteration = 0
         while is_infinite or iteration < loop_count:
             for frame_num in sorted(frames.keys()):
                 frame_layers = frames[frame_num]
                 
-                # === FULL FRAME BUFFERING ===
-                # Build entire frame output in memory before any I/O
+                # Build frame output
                 frame_buffer = []
+                frame_buffer.append('\x1b[u')  # Restore cursor
                 
-                # Start with cursor restore
-                frame_buffer.append('\x1b[u')
-                
-                # Collect all layer output for this frame
+                # Collect layer output
                 frame_output = []
                 for layer in frame_layers:
                     if layer.visible_output:
@@ -307,29 +293,24 @@ def _display_animated(meow: MEOWContent, meld: bool):
                         break
                     
                     # Truncate line to terminal width
-                    truncated_line = truncate_ansi_line(line, term_width)
+                    truncated_line = _truncate_ansi_line(line, term_width)
                     frame_buffer.append(truncated_line)
+                    frame_buffer.append('\x1b[K')  # Clear to end of line
                     
-                    # Clear to end of line
-                    frame_buffer.append('\x1b[K')
-                    
-                    # Move to next line (down 1, column 0) - but not after last line
                     if idx < display_height - 1:
-                        frame_buffer.append('\x1b[B\x1b[G')
+                        frame_buffer.append('\x1b[B\x1b[G')  # Next line
                 
-                # === ATOMIC FRAME OUTPUT ===
-                # Write entire frame in one I/O operation
+                # Write frame
                 sys.stdout.write(''.join(frame_buffer))
                 sys.stdout.flush()
                 
-                # Get delay from first animated layer in frame
+                # Get delay
                 delay_ms = DEFAULT_FRAME_DELAY
                 for layer in frame_layers:
                     if layer.frame is not None:
                         delay_ms = layer.delay
                         break
                 
-                # Sleep for frame delay
                 time.sleep(delay_ms / 1000.0)
             
             iteration += 1
@@ -339,9 +320,38 @@ def _display_animated(meow: MEOWContent, meld: bool):
     finally:
         # Restore cursor position and show cursor
         print('\x1b[u\x1b[?25h', end='', flush=True)
-        
         # Move cursor below animation
         print(f'\x1b[{canvas_height}B')
+
+
+def _truncate_ansi_line(line: str, max_width: int) -> str:
+    """
+    Truncate a line with ANSI codes to max_width visible characters.
+    
+    ANSI escape sequences don't count toward visible width.
+    """
+    if max_width <= 0:
+        return ""
+    
+    visible_count = 0
+    result = []
+    i = 0
+    
+    while i < len(line) and visible_count < max_width:
+        if line[i:i+2] == '\x1b[':
+            # ANSI escape sequence - find the end
+            end = line.find('m', i)
+            if end != -1:
+                result.append(line[i:end+1])
+                i = end + 1
+                continue
+        
+        # Regular character
+        result.append(line[i])
+        visible_count += 1
+        i += 1
+    
+    return ''.join(result)
 
 
 # ============================================================================
@@ -449,23 +459,3 @@ def show_info(filepath: Union[str, Path]) -> None:
         
         if layer.visible_output:
             print(f"  Visible Output: {len(layer.visible_output)} bytes")
-
-
-# ============================================================================
-# Deprecated - Backward Compatibility
-# ============================================================================
-
-def load_meow(filepath: str) -> MEOWContent:
-    """
-    DEPRECATED: Use load_meow_file() + parse_meow() instead.
-    
-    Load and parse a MEOW file.
-    
-    Args:
-        filepath: Path to .meow file
-        
-    Returns:
-        Parsed MEOWContent object
-    """
-    content = load_meow_file(filepath)
-    return parse_meow(content)
